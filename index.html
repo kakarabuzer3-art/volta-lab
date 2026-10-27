@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#070b12" />
+    <meta name="description" content="A cinematic, interactive 3D industrial power-unit simulator." />
+    <title>Volta Lab — Industrial Power Unit</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <a class="brand" href="#" aria-label="Volta Lab home">
+          <span class="brand-mark"><span></span><span></span><span></span></span>
+          <span class="brand-copy"><b>VOLTA<span>LAB</span></b><small>INTERACTIVE POWER SYSTEMS</small></span>
+        </a>
+        <div class="topbar-center"><span class="live-dot"></span> INDUSTRIAL SIMULATION <span class="topbar-divider">/</span> VOLTA V-220</div>
+        <div class="topbar-right"><span class="system-pill"><i></i><span id="systemStateTop">SYSTEM STANDBY</span></span><button id="resetViewBtn" class="icon-button" title="Reset camera view" aria-label="Reset camera view">⟳</button></div>
+      </header>
+
+      <main class="workspace">
+        <section class="viewport-panel" aria-label="Interactive 3D generator scene">
+          <div class="viewport-head">
+            <div><div class="eyebrow">LAB / 001 <span class="eyebrow-line"></span> INDUSTRIAL POWER UNIT</div><h1>Power <em>Unit</em></h1><p>Enclosed black-metal machine · interactive front panel</p></div>
+            <div class="view-tools"><span class="viewport-badge"><span class="tiny-live"></span> REAL-TIME MODEL</span><button id="explodeBtn" class="subtle-button">DETAIL VIEW <span class="toggle-track"><i></i></span></button></div>
+          </div>
+          <div id="sceneWrap" class="scene-wrap">
+            <canvas id="sceneCanvas" aria-label="3D industrial power unit. Drag either cable tip; drag the front dial to change the output setting; drag empty space to orbit."></canvas>
+            <div class="scene-grid"></div>
+            <div class="scene-vignette"></div>
+            <div class="scene-coordinate coord-tl">X: <b id="coordX">0.00</b><br>Y: <b id="coordY">0.00</b><br>Z: <b id="coordZ">0.00</b></div>
+            <div class="scene-status"><span class="status-square"></span><span id="sceneStatusText">MACHINE STANDBY</span><span class="scene-status-sep">·</span><span id="sceneFps">60 FPS TARGET</span></div>
+            <div class="scene-hint"><span class="mouse-symbol">⌖</span> DRAG CABLE TIPS <span class="hint-sep">·</span> DRAG FRONT DIAL TO ADJUST <span class="hint-sep">·</span> ORBIT VIEW</div>
+            <div class="floating-reading"><span class="floating-label">OUTPUT VOLTAGE</span><div><strong id="floatingVoltage">000</strong><small>V</small></div><span class="floating-wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></div>
+            <div class="power-flow" id="powerFlow"><span class="flow-orb"></span><span>OUTPUT STATUS</span><b id="flowText">INACTIVE</b></div>
+            <div class="wire-tip-label left-tip-label">LIVE LEAD <span>01</span></div>
+            <div class="wire-tip-label right-tip-label">RETURN LEAD <span>02</span></div>
+          </div>
+          <div class="viewport-footer">
+            <div class="footer-legend"><span><i class="legend-copper"></i> MATTE-BLACK ENCLOSURE</span><span><i class="legend-blue"></i> DIGITAL FRONT DISPLAY</span><span><i class="legend-wire"></i> INSULATED OUTPUT LEADS</span></div>
+            <div class="camera-label">CAMERA <b>FREE ORBIT</b><span class="footer-sep">/</span> RENDER <b>WEBGL</b></div>
+          </div>
+        </section>
+
+        <aside class="control-column">
+          <section class="control-card power-card">
+            <div class="card-heading"><div><span class="section-index">01</span><h2>Machine Control</h2></div><span class="card-dot"></span></div>
+            <div class="machine-identity"><div class="machine-icon"><svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="17"/><circle cx="24" cy="24" r="8"/><path d="M24 7v9M24 32v9M7 24h9M32 24h9M12 12l7 7M29 29l7 7M36 12l-7 7M19 29l-7 7"/></svg></div><div class="identity-copy"><strong>INDUSTRIAL POWER UNIT</strong><span>V-220 / DIGITAL OUTPUT MODEL</span></div><span class="model-tag">V-220</span></div>
+            <div class="power-switch-row"><div><strong>MAIN POWER</strong><span id="powerDescription">Output stage is disabled</span></div><button id="powerBtn" class="power-switch" aria-pressed="false"><span class="switch-label">OFF</span><span class="switch-knob"></span></button></div>
+            <div class="control-divider"></div>
+            <div class="slider-head"><label for="voltageSlider">OUTPUT VOLTAGE</label><div class="slider-value"><strong id="voltageValue">220</strong><span>V AC</span></div></div>
+            <input id="voltageSlider" class="range range-voltage" type="range" min="0" max="220" value="220" step="1" aria-label="Output voltage setting" />
+            <div class="range-labels"><span>0 V</span><span>110 V</span><span>220 V</span></div>
+            <div class="voltage-presets"><button data-voltage="24">24 V</button><button data-voltage="48">48 V</button><button data-voltage="110">110 V</button><button data-voltage="220" class="preset-active">220 V</button></div>
+            <div class="micro-note"><span class="note-icon">↗</span><span>Voltage control changes the simulator’s target output; it is not a real AVR or hardware control.</span></div>
+          </section>
+
+          <section class="control-card cable-card">
+            <div class="card-heading"><div><span class="section-index">02</span><h2>Output Cables</h2></div><span class="connection-state" id="connectionPill"><i></i> OPEN CIRCUIT</span></div>
+            <div class="lead-row"><div class="lead-icon live-lead"><span></span></div><div class="lead-copy"><strong>Lead A <small>· LIVE</small></strong><span>Drag its exposed tip in the 3D view</span></div><div class="lead-state" id="leadAState">READY</div></div>
+            <div class="lead-row"><div class="lead-icon return-lead"><span></span></div><div class="lead-copy"><strong>Lead B <small>· RETURN</small></strong><span>Bring both exposed ends together</span></div><div class="lead-state" id="leadBState">READY</div></div>
+            <div class="wire-action-row"><button id="touchWiresBtn" class="primary-action"><span class="action-spark">✳</span> TOUCH WIRE ENDS</button><button id="separateWiresBtn" class="secondary-action">SEPARATE</button></div>
+            <div class="arc-status" id="arcStatus"><span class="arc-pulse"></span><div><strong>ARC SIMULATION</strong><small>Connect the two cable tips while power is ON.</small></div><span class="arc-state" id="arcState">IDLE</span></div>
+          </section>
+
+          <section class="control-card telemetry-card">
+            <div class="card-heading"><div><span class="section-index">03</span><h2>Live Telemetry</h2></div><span class="telemetry-label"><span></span> STREAMING</span></div>
+            <div class="telemetry-grid">
+              <div class="metric"><span>OUTPUT VOLTAGE</span><div><strong id="metricVoltage">0.0</strong><small>V</small></div><div class="metric-track"><i id="voltageBar"></i></div></div>
+              <div class="metric"><span>OUTPUT CURRENT</span><div><strong id="metricCurrent">0.00</strong><small>A</small></div><div class="metric-track"><i id="currentBar"></i></div></div>
+              <div class="metric"><span>OUTPUT POWER</span><div><strong id="metricPower">0</strong><small>W</small></div><div class="metric-track"><i id="powerBar"></i></div></div>
+              <div class="metric"><span>FREQUENCY</span><div><strong id="metricFrequency">0.0</strong><small>Hz</small></div><div class="metric-track"><i id="frequencyBar"></i></div></div>
+            </div>
+            <div class="telemetry-foot"><span>MODEL UPDATE <b id="updateRate">60 Hz</b></span><span>SOURCE RESISTANCE <b>27.5 Ω*</b></span></div>
+            <p class="model-footnote">*Simplified, current-limited educational model. It does not predict real fault currents or safe touch distances.</p>
+          </section>
+
+          <section class="safety-card"><span class="safety-icon">!</span><div><strong>SIMULATION ONLY · 220 V CAN KILL</strong><p>This is a visual software model. Never reproduce wire-touching or sparking experiments with a real power supply. Real arc and shock hazards depend on source impedance, contact geometry, insulation, environment and exposure.</p></div></section>
+        </aside>
+      </main>
+      <footer class="app-footer"><span>VOLTA LAB <b>0.2.0 INDUSTRIAL EDITION</b></span><span>EDUCATIONAL SIMULATION <i>·</i> NOT FOR ELECTRICAL DESIGN OR SAFETY DECISIONS</span><span>THREE.JS <b id="rendererLabel">WEBGL</b></span></footer>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
