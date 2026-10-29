@@ -37,13 +37,13 @@
         <aside id="controlPanel" class="control-column" aria-label="Machine controls">
           <section class="control-card power-card">
             <div class="card-heading"><div><span class="section-index">01</span><h2>Machine Control</h2></div><span class="card-dot"></span></div>
-            <div class="machine-identity"><div class="machine-icon"><svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="17"/><circle cx="24" cy="24" r="8"/><path d="M24 7v9M24 32v9M7 24h9M32 24h9M12 12l7 7M29 29l7 7M36 12l-7 7M19 29l-7 7"/></svg></div><div class="identity-copy"><strong>INDUSTRIAL POWER UNIT</strong><span>V-220 / DIGITAL OUTPUT MODEL</span></div><span class="model-tag">V-220</span></div>
+            <div class="machine-identity"><div class="machine-icon"><svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="17"/><circle cx="24" cy="24" r="8"/><path d="M24 7v9M24 32v9M7 24h9M32 24h9M12 12l7 7M29 29l7 7M36 12l-7 7M19 29l-7 7"/></svg></div><div class="identity-copy"><strong>INDUSTRIAL POWER UNIT</strong><span>V-415 / DIGITAL OUTPUT MODEL</span></div><span class="model-tag">V-415</span></div>
             <div class="power-switch-row"><div><strong>MAIN POWER</strong><span id="powerDescription">Output stage is disabled</span></div><button id="powerBtn" class="power-switch" type="button" role="switch" aria-checked="false" aria-label="Main power"><span class="switch-text switch-text-on" aria-hidden="true">ON</span><span class="switch-text switch-text-off" aria-hidden="true">OFF</span><span class="switch-knob" aria-hidden="true"></span></button></div>
             <div class="control-divider"></div>
             <div class="slider-head"><label for="voltageSlider">OUTPUT VOLTAGE</label><div class="slider-value"><strong id="voltageValue">220</strong><span>V AC</span></div></div>
-            <input id="voltageSlider" class="range range-voltage" type="range" min="0" max="220" value="220" step="1" aria-label="Output voltage setting" />
-            <div class="range-labels"><span>0 V</span><span>110 V</span><span>220 V</span></div>
-            <div class="voltage-presets"><button data-voltage="24">24 V</button><button data-voltage="48">48 V</button><button data-voltage="110">110 V</button><button data-voltage="220" class="preset-active">220 V</button></div>
+            <input id="voltageSlider" class="range range-voltage" type="range" min="0" max="415" value="220" step="1" aria-label="Output voltage setting" />
+            <div class="range-labels"><span>0 V</span><span>208 V</span><span>415 V</span></div>
+            <div class="voltage-presets"><button data-voltage="110">110 V</button><button data-voltage="220" class="preset-active">220 V</button><button data-voltage="400">400 V</button><button data-voltage="415">415 V</button></div>
             <div class="micro-note"><span class="note-icon">↗</span><span>Voltage control changes the simulator’s target output; it is not a real AVR or hardware control.</span></div>
           </section>
 
@@ -67,7 +67,7 @@
             <p class="model-footnote">*Simplified, current-limited educational model. It does not predict real fault currents or safe touch distances.</p>
           </section>
 
-          <section class="safety-card"><span class="safety-icon">!</span><div><strong>SIMULATION ONLY · 220 V CAN KILL</strong><p>This is a visual software model. Never reproduce wire-touching or sparking experiments with a real power supply. Real arc and shock hazards depend on source impedance, contact geometry, insulation, environment and exposure.</p></div></section>
+          <section class="safety-card"><span class="safety-icon">!</span><div><strong>SIMULATION ONLY · MAINS VOLTAGE CAN KILL</strong><p>This is a visual software model. Never reproduce wire-touching or sparking experiments with a real power supply. Real arc and shock hazards depend on source impedance, contact geometry, insulation, environment and exposure.</p></div></section>
         </aside>
       </main>
     </div>

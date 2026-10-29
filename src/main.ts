@@ -3,6 +3,16 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import './style.css';
 
+// Real-world mains reference (IEC 60038 / national grids): single-phase 220-240 V,
+// three-phase line-to-line 400 V (415 V on 240/415 V grids, e.g. Qatar, Kuwait, Oman).
+// 415 V is therefore the highest common nominal mains voltage this unit can output.
+const MAX_VOLTAGE = 415;
+const SOURCE_RESISTANCE = 27.5; // ohms, shown in the telemetry card
+const MAX_CURRENT = MAX_VOLTAGE / SOURCE_RESISTANCE; // Ohm's law at full output
+const MAX_POWER = MAX_VOLTAGE * MAX_CURRENT;
+const SPARK_REF_VOLTAGE = 220; // spark size at this setting is the original look; higher voltage grows it
+const SPARK_MAX = 192;
+
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const canvas = $('sceneCanvas') as HTMLCanvasElement;
 const sceneWrap = $('sceneWrap');
@@ -214,7 +224,7 @@ function makeLabelTexture(title: string, subtitle: string, aspect = 7.5) {
 }
 const brandLabel = new THREE.Mesh(
   new THREE.PlaneGeometry(1.5, 0.2),
-  new THREE.MeshBasicMaterial({ map: makeLabelTexture('VOLTA LAB  /  V-220', 'INDUSTRIAL POWER UNIT'), transparent: true, toneMapped: false }),
+  new THREE.MeshBasicMaterial({ map: makeLabelTexture('VOLTA LAB  /  V-415', 'INDUSTRIAL POWER UNIT'), transparent: true, toneMapped: false }),
 );
 brandLabel.position.set(-0.74, 0.655, 0.755);
 machine.add(brandLabel);
@@ -282,7 +292,7 @@ function paintMachineDisplay(voltage: number, current: number, frequency: number
   // Header bar: title + status chip.
   ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fillRect(0, 0, W, 42);
   ctx.textBaseline = 'middle';
-  ctx.fillStyle = label; ctx.font = `500 18px ${MONO}`; ctx.fillText('AC OUTPUT  ·  V-220  ·  SIM', 24, 22);
+  ctx.fillStyle = label; ctx.font = `500 18px ${MONO}`; ctx.fillText('AC OUTPUT  ·  V-415  ·  SIM', 24, 22);
   const status = arc ? 'ARC' : on ? 'RUN' : 'OFF';
   ctx.beginPath(); ctx.roundRect(574, 9, 122, 25, 12.5);
   ctx.fillStyle = on || arc ? `${accent}26` : 'rgba(255,255,255,0.05)'; ctx.fill();
@@ -301,7 +311,7 @@ function paintMachineDisplay(voltage: number, current: number, frequency: number
   const bx = 430, bw = 266;
   ctx.fillStyle = label; ctx.font = `500 14px ${MONO}`; ctx.fillText('OUTPUT LEVEL', bx, 72);
   ctx.fillStyle = 'rgba(255,255,255,0.09)'; ctx.beginPath(); ctx.roundRect(bx, 84, bw, 10, 5); ctx.fill();
-  const frac = Math.max(0, Math.min(1, voltage / 220));
+  const frac = Math.max(0, Math.min(1, voltage / MAX_VOLTAGE));
   if (frac > 0.005) {
     const fill = ctx.createLinearGradient(bx, 0, bx + bw, 0);
     fill.addColorStop(0, '#2fa77f'); fill.addColorStop(1, accent);
@@ -311,8 +321,8 @@ function paintMachineDisplay(voltage: number, current: number, frequency: number
   for (let i = 0; i <= 4; i++) ctx.fillRect(bx + (bw * i) / 4 - 0.5, 100, 1, 6);
   ctx.fillStyle = '#5a8574'; ctx.font = `500 13px ${MONO}`;
   ctx.textAlign = 'left'; ctx.fillText('0', bx, 122);
-  ctx.textAlign = 'center'; ctx.fillText('110', bx + bw / 2, 122);
-  ctx.textAlign = 'right'; ctx.fillText('220', bx + bw, 122); ctx.textAlign = 'left';
+  ctx.textAlign = 'center'; ctx.fillText(String(Math.round(MAX_VOLTAGE / 2)), bx + bw / 2, 122);
+  ctx.textAlign = 'right'; ctx.fillText(String(MAX_VOLTAGE), bx + bw, 122); ctx.textAlign = 'left';
 
   // Secondary read-outs.
   ctx.fillStyle = 'rgba(120,200,170,0.16)'; ctx.fillRect(24, 130, W - 48, 1);
@@ -402,7 +412,7 @@ for (let i = 0; i < 11; i++) {
   tick.rotation.z = -angle;
   dialGroup.add(tick);
 }
-const dialLabel = new THREE.Mesh(new THREE.PlaneGeometry(0.52, 0.1), new THREE.MeshBasicMaterial({ map: makeLabelTexture('OUTPUT LEVEL', '0 - 220 V AC', 5.2), transparent: true, toneMapped: false }));
+const dialLabel = new THREE.Mesh(new THREE.PlaneGeometry(0.52, 0.1), new THREE.MeshBasicMaterial({ map: makeLabelTexture('OUTPUT LEVEL', `0 - ${MAX_VOLTAGE} V AC`, 5.2), transparent: true, toneMapped: false }));
 dialLabel.position.set(0.81, -0.47, 0.795);
 machine.add(dialLabel);
 
@@ -490,7 +500,7 @@ function rebuildCable(index: number) {
 }
 
 // Stylized spark particles and branching bolts; voltage scales appearance only.
-const sparkPositions = new Float32Array(96 * 3);
+const sparkPositions = new Float32Array(SPARK_MAX * 3);
 const sparkVelocities: THREE.Vector3[] = [];
 const sparkGeometry = new THREE.BufferGeometry();
 sparkGeometry.setAttribute('position', new THREE.BufferAttribute(sparkPositions, 3));
@@ -503,15 +513,18 @@ scene.add(boltGroup);
 let sparkLife = 0;
 let sparkIntensity = 1;
 let sparkParticleCount = 96;
+let sparkLifeMax = 0.24;
 let lastSparkAt = 0;
 function triggerSpark(center: THREE.Vector3) {
-  sparkIntensity = THREE.MathUtils.clamp(targetVoltage / 220, 0.04, 1);
-  sparkParticleCount = Math.max(5, Math.round(96 * sparkIntensity));
-  sparkLife = 0.24;
+  // Not clamped to 1: above 220 V the spark/flame keeps growing (about 1.9x at 415 V).
+  sparkIntensity = THREE.MathUtils.clamp(targetVoltage / SPARK_REF_VOLTAGE, 0.04, MAX_VOLTAGE / SPARK_REF_VOLTAGE);
+  sparkParticleCount = Math.max(5, Math.min(SPARK_MAX, Math.round(96 * sparkIntensity)));
+  sparkLifeMax = 0.2 + 0.1 * sparkIntensity;
+  sparkLife = sparkLifeMax;
   lastSparkAt = performance.now();
   sparkGeometry.setDrawRange(0, sparkParticleCount);
   sparkMaterial.size = 0.02 + sparkIntensity * 0.055;
-  for (let i = 0; i < 96; i++) {
+  for (let i = 0; i < SPARK_MAX; i++) {
     if (i < sparkParticleCount) {
       const spread = 0.035 + sparkIntensity * 0.17;
       sparkPositions[i * 3] = center.x + (Math.random() - 0.5) * spread;
@@ -528,7 +541,7 @@ function triggerSpark(center: THREE.Vector3) {
     }
   }
   sparkGeometry.attributes.position.needsUpdate = true;
-  sparkMaterial.opacity = 0.28 + sparkIntensity * 0.72;
+  sparkMaterial.opacity = Math.min(1, 0.28 + sparkIntensity * 0.72);
   while (boltGroup.children.length) {
     const child = boltGroup.children[0] as THREE.Line;
     boltGroup.remove(child); child.geometry.dispose();
@@ -615,13 +628,13 @@ const powerBar = $('powerBar') as HTMLElement;
 const frequencyBar = $('frequencyBar') as HTMLElement;
 
 function updateRangePaint() {
-  voltageSlider.style.setProperty('--range-fill', `${(targetVoltage / 220) * 100}%`);
+  voltageSlider.style.setProperty('--range-fill', `${(targetVoltage / MAX_VOLTAGE) * 100}%`);
 }
 function updatePhysicalDial() {
-  dialNeedle.rotation.z = THREE.MathUtils.degToRad(145 - (targetVoltage / 220) * 290);
+  dialNeedle.rotation.z = THREE.MathUtils.degToRad(145 - (targetVoltage / MAX_VOLTAGE) * 290);
 }
 function setVoltage(value: number) {
-  targetVoltage = THREE.MathUtils.clamp(Math.round(value), 0, 220);
+  targetVoltage = THREE.MathUtils.clamp(Math.round(value), 0, MAX_VOLTAGE);
   voltageSlider.value = String(targetVoltage);
   voltageValue.textContent = String(targetVoltage);
   updateRangePaint();
@@ -708,7 +721,7 @@ canvas.addEventListener('pointermove', (event) => {
     return;
   }
   if (activeDial) {
-    setVoltage(targetVoltage + (event.clientX - lastDialX) * 1.25);
+    setVoltage(targetVoltage + (event.clientX - lastDialX) * 1.25 * (MAX_VOLTAGE / 220));
     lastDialX = event.clientX;
     event.preventDefault();
     return;
@@ -813,7 +826,7 @@ function animate() {
   previousContact = contact;
   if (sparkLife > 0) {
     sparkLife -= dt;
-    sparkMaterial.opacity = Math.max(0, sparkLife / 0.24) * (0.28 + sparkIntensity * 0.72);
+    sparkMaterial.opacity = Math.max(0, sparkLife / sparkLifeMax) * (0.28 + sparkIntensity * 0.72);
     const attr = sparkGeometry.attributes.position as THREE.BufferAttribute;
     for (let i = 0; i < sparkParticleCount; i++) {
       sparkPositions[i * 3] += sparkVelocities[i].x * dt;
@@ -824,7 +837,7 @@ function animate() {
     attr.needsUpdate = true;
     for (const child of boltGroup.children) {
       const line = child as THREE.Line;
-      (line.material as THREE.LineBasicMaterial).opacity = Math.max(0, sparkLife / 0.24) * (0.3 + 0.7 * sparkIntensity) * (0.62 + Math.random() * 0.38);
+      (line.material as THREE.LineBasicMaterial).opacity = Math.max(0, sparkLife / sparkLifeMax) * (0.3 + 0.7 * sparkIntensity) * (0.62 + Math.random() * 0.38);
     }
   } else {
     sparkMaterial.opacity = 0;
@@ -834,7 +847,7 @@ function animate() {
   const voltage = isOn ? targetVoltage : 0;
   // Illustrative readings only. The capped current is a display rule, not a real
   // source impedance calculation, arc calculation, or safe-current threshold.
-  const current = poweredContact ? Math.min(voltage / 27.5, 8) : 0;
+  const current = poweredContact ? voltage / SOURCE_RESISTANCE : 0;
   const power = voltage * current;
   const frequency = isOn ? 50 : 0; // Pakistan mains frequency shown as a configurable-model default.
 
@@ -845,9 +858,9 @@ function animate() {
     metricPower.textContent = Math.round(power).toLocaleString('en-US');
     metricFrequency.textContent = frequency.toFixed(1);
     floatingVoltage.textContent = String(Math.round(voltage)).padStart(3, '0');
-    voltageBar.style.width = `${voltage / 220 * 100}%`;
-    currentBar.style.width = `${current / 8 * 100}%`;
-    powerBar.style.width = `${power / 1760 * 100}%`;
+    voltageBar.style.width = `${voltage / MAX_VOLTAGE * 100}%`;
+    currentBar.style.width = `${current / MAX_CURRENT * 100}%`;
+    powerBar.style.width = `${power / MAX_POWER * 100}%`;
     frequencyBar.style.width = `${frequency / 50 * 100}%`;
     connectionPill.classList.toggle('connected', contact);
     connectionPill.innerHTML = `<i></i> ${contact ? (isOn ? 'CONTACT / LIVE' : 'CONTACT / OFF') : 'OPEN CIRCUIT'}`;

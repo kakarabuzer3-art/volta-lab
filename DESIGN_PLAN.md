@@ -9,7 +9,7 @@ Create a cinematic, interactive 3D lab centred on a real-world-looking enclosed 
 3. **Physical controls:** front rocker switch and rotary voltage-level dial. They are interactive in the 3D model and synchronized with the software controls.
 4. **Output connections:** two front-mounted terminals feed a red and a black thick insulated lead, each with a metallic exposed end. Cable ends can be dragged in 3D or moved with quick-action buttons.
 5. **Scene:** dark product-studio / lab backdrop, restrained metallic highlights, soft shadows and a free-orbit camera. The object remains enclosed; internal generator parts are not shown.
-6. **Supporting UI:** machine ON/OFF, 0–220 V level control, common voltage presets, live readouts, connection state, detail/wide view, reset camera, and concise keyboard help.
+6. **Supporting UI:** machine ON/OFF, 0–415 V level control (highest common nominal mains: 240/415 V grids), common voltage presets, live readouts, connection state, detail/wide view, reset camera, and concise keyboard help.
 7. **Wire contact effect:** when powered wire tips touch, play a voltage-scaled, stylized spark. Separate tips or switch power off to stop the effect.
 
 ## Behaviour model
