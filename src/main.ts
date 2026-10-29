@@ -12,27 +12,61 @@ const sceneWrap = $('sceneWrap');
 // style power unit. Telemetry and sparks are intentionally labelled simulation.
 // This is not a validated electrical, arc, or human-shock model.
 // -----------------------------------------------------------------------------
+// Studio backdrop painted as a dithered radial gradient (a flat colour or a CSS
+// overlay would either look dead or put a haze layer on top of the machine).
+function makeBackdropTexture() {
+  const size = 1024;
+  const c = document.createElement('canvas'); c.width = size; c.height = size;
+  const ctx = c.getContext('2d')!;
+  const g = ctx.createRadialGradient(size * 0.52, size * 0.46, 30, size * 0.5, size * 0.56, size * 0.74);
+  g.addColorStop(0, '#242b31'); g.addColorStop(0.45, '#12171c'); g.addColorStop(1, '#07090b');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, size, size);
+  const img = ctx.getImageData(0, 0, size, size);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const n = (Math.random() - 0.5) * 3; // tiny dither removes colour banding in dark gradients
+    img.data[i] += n; img.data[i + 1] += n; img.data[i + 2] += n;
+  }
+  ctx.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
 const scene = new THREE.Scene();
-scene.background = new THREE.Color('#080a0d');
-scene.fog = new THREE.FogExp2('#080a0d', 0.026);
+scene.background = makeBackdropTexture();
+scene.fog = new THREE.FogExp2('#080a0d', 0.012);
 
-const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 100);
-const defaultCamera = new THREE.Vector3(0.3, 0.48, 8.45);
+const BASE_FOV = 34;
+const camera = new THREE.PerspectiveCamera(BASE_FOV, 1, 0.1, 100);
+const defaultCamera = new THREE.Vector3(0.2, 0.45, 7.5);
+const defaultTarget = new THREE.Vector3(0, -0.12, 0);
+const detailCamera = new THREE.Vector3(-0.1, 0.22, 5.75);
+const detailTarget = new THREE.Vector3(-0.1, -0.05, 0);
 camera.position.copy(defaultCamera);
-camera.lookAt(0, -0.12, 0);
+camera.lookAt(defaultTarget);
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.8));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.08;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
+const maxAnisotropy = renderer.capabilities.getMaxAnisotropy();
+
+// Every canvas texture on the machine (screen, labels, floor grid) goes through
+// here: mipmaps + max anisotropy keep small text crisp at oblique viewing angles.
+function sharpen(texture: THREE.CanvasTexture) {
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.generateMipmaps = true;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.anisotropy = maxAnisotropy;
+  return texture;
+}
 
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.dampingFactor = 0.065;
-controls.target.set(0, -0.12, 0);
-controls.minDistance = 5.4;
+controls.target.copy(defaultTarget);
+controls.minDistance = 5.2;
 controls.maxDistance = 12;
 controls.maxPolarAngle = Math.PI * 0.82;
 controls.update();
@@ -41,7 +75,12 @@ scene.add(new THREE.HemisphereLight('#d6e0ed', '#111318', 1.75));
 const keyLight = new THREE.DirectionalLight('#f2f6ff', 3.2);
 keyLight.position.set(4.2, 5.5, 6);
 keyLight.castShadow = true;
-keyLight.shadow.mapSize.set(1024, 1024);
+keyLight.shadow.mapSize.set(2048, 2048); // 4x the texels of the old 1024 map = crisper contact shadows
+keyLight.shadow.camera.left = -4.6; keyLight.shadow.camera.right = 4.6;
+keyLight.shadow.camera.top = 4.6; keyLight.shadow.camera.bottom = -4.6;
+keyLight.shadow.camera.near = 1; keyLight.shadow.camera.far = 18;
+keyLight.shadow.bias = -0.0004;
+keyLight.shadow.normalBias = 0.02;
 scene.add(keyLight);
 const rimLight = new THREE.PointLight('#4688bd', 18, 8, 2);
 rimLight.position.set(2.6, 1.7, -1.6);
@@ -82,6 +121,33 @@ const floorHalo = new THREE.Mesh(
 floorHalo.rotation.x = -Math.PI / 2;
 floorHalo.position.set(0, -1.195, -0.05);
 scene.add(floorHalo);
+
+// Real floor grid in 3D (replaces the old CSS overlay that sat on top of the
+// canvas and drew lines across the machine). Fades out radially.
+function makeFloorGridTexture() {
+  const size = 2048, cell = 128;
+  const c = document.createElement('canvas'); c.width = size; c.height = size;
+  const ctx = c.getContext('2d')!;
+  const line = (step: number, width: number, alpha: number) => {
+    ctx.strokeStyle = `rgba(160,182,196,${alpha})`; ctx.lineWidth = width; ctx.beginPath();
+    for (let p = 0; p <= size; p += step) { ctx.moveTo(p, 0); ctx.lineTo(p, size); ctx.moveTo(0, p); ctx.lineTo(size, p); }
+    ctx.stroke();
+  };
+  line(cell / 4, 1, 0.07);
+  line(cell, 2, 0.22);
+  ctx.globalCompositeOperation = 'destination-in';
+  const fade = ctx.createRadialGradient(size / 2, size / 2, size * 0.08, size / 2, size / 2, size / 2);
+  fade.addColorStop(0, 'rgba(0,0,0,1)'); fade.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = fade; ctx.fillRect(0, 0, size, size);
+  return sharpen(new THREE.CanvasTexture(c));
+}
+const floorGrid = new THREE.Mesh(
+  new THREE.PlaneGeometry(16, 16),
+  new THREE.MeshBasicMaterial({ map: makeFloorGridTexture(), transparent: true, depthWrite: false, toneMapped: false }),
+);
+floorGrid.rotation.x = -Math.PI / 2;
+floorGrid.position.set(0, -1.203, 0);
+scene.add(floorGrid);
 
 const machine = new THREE.Group();
 scene.add(machine);
@@ -160,53 +226,137 @@ for (const x of [-1.42, 1.42]) {
 for (const x of [-1.49, 1.49]) for (const y of [-0.76, 0.65]) addFrontBolt(x, y);
 
 // Printed product label rendered as a canvas texture.
-function makeLabelTexture(title: string, subtitle: string) {
-  const c = document.createElement('canvas'); c.width = 600; c.height = 80;
+// Drawn at 3x the old resolution (1800x240 instead of 600x80) with larger type,
+// then mip-mapped + anisotropic, so the printed text stays sharp.
+const MONO = "'DM Mono', ui-monospace, Menlo, Consolas, monospace";
+function makeLabelTexture(title: string, subtitle: string, aspect = 7.5) {
+  // Canvas aspect must equal the plane aspect, otherwise the text is squashed (blurry/distorted).
+  const c = document.createElement('canvas'); c.width = Math.round(240 * aspect); c.height = 240;
   const ctx = c.getContext('2d')!;
   ctx.clearRect(0, 0, c.width, c.height);
-  ctx.fillStyle = '#b7c2cb'; ctx.font = '600 28px Arial, sans-serif'; ctx.fillText(title, 6, 34);
-  ctx.fillStyle = '#667582'; ctx.font = '500 16px monospace'; ctx.fillText(subtitle, 8, 61);
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
-  return t;
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = '#c3cdd5'; ctx.font = '600 84px Arial, Helvetica, sans-serif'; ctx.fillText(title, 18, 102);
+  ctx.fillStyle = '#74838f'; ctx.font = `500 54px ${MONO}`; ctx.fillText(subtitle, 22, 188);
+  return sharpen(new THREE.CanvasTexture(c));
 }
 const brandLabel = new THREE.Mesh(
   new THREE.PlaneGeometry(1.5, 0.2),
   new THREE.MeshBasicMaterial({ map: makeLabelTexture('VOLTA LAB  /  V-220', 'INDUSTRIAL POWER UNIT'), transparent: true, toneMapped: false }),
 );
-brandLabel.position.set(-0.58, 0.62, 0.755);
+brandLabel.position.set(-0.74, 0.655, 0.755);
 machine.add(brandLabel);
 
-// Realistic-ish inset digital display mounted on the black casing.
+// Inset digital display mounted on the casing. Drawn on a 720x190 logical grid but
+// rasterised at 2x (1440x380) and sampled with mipmaps + anisotropy so the digits
+// stay sharp. The bezel and glass are larger than before so values are readable
+// at the default camera distance.
+const DISPLAY_W = 720, DISPLAY_H = 190, DISPLAY_SCALE = 2;
 const displayCanvas = document.createElement('canvas');
-displayCanvas.width = 720; displayCanvas.height = 190;
+displayCanvas.width = DISPLAY_W * DISPLAY_SCALE; displayCanvas.height = DISPLAY_H * DISPLAY_SCALE;
 const displayContext = displayCanvas.getContext('2d')!;
-const displayTexture = new THREE.CanvasTexture(displayCanvas);
-displayTexture.colorSpace = THREE.SRGBColorSpace;
-const displayFrame = addBox(machine, [1.56, 0.54, 0.11], [-0.59, 0.28, 0.761], darkSteel, true);
-const displayInner = addBox(machine, [1.46, 0.445, 0.035], [-0.59, 0.28, 0.827], insetMat, true);
+const displayTexture = sharpen(new THREE.CanvasTexture(displayCanvas));
+const displayFrame = addBox(machine, [1.98, 0.58, 0.11], [-0.5, 0.27, 0.761], darkSteel, true);
+const displayInner = addBox(machine, [1.9, 0.51, 0.035], [-0.5, 0.27, 0.827], insetMat, true);
+const DISPLAY_PLANE_W = 1.84;
 const displayPlane = new THREE.Mesh(
-  new THREE.PlaneGeometry(1.405, 0.375),
+  new THREE.PlaneGeometry(DISPLAY_PLANE_W, DISPLAY_PLANE_W * DISPLAY_H / DISPLAY_W),
   new THREE.MeshBasicMaterial({ map: displayTexture, toneMapped: false }),
 );
-displayPlane.position.set(-0.59, 0.28, 0.849);
+displayPlane.position.set(-0.5, 0.27, 0.849);
 machine.add(displayPlane);
 
+// Very faint diagonal glass sheen above the screen (kept subtle so it never reduces contrast).
+const sheenCanvas = document.createElement('canvas'); sheenCanvas.width = 256; sheenCanvas.height = 64;
+{
+  const sctx = sheenCanvas.getContext('2d')!;
+  const g = sctx.createLinearGradient(0, 0, 256, 64);
+  g.addColorStop(0, 'rgba(255,255,255,0.10)'); g.addColorStop(0.38, 'rgba(255,255,255,0.02)');
+  g.addColorStop(0.4, 'rgba(255,255,255,0)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+  sctx.fillStyle = g; sctx.fillRect(0, 0, 256, 64);
+}
+const displaySheen = new THREE.Mesh(
+  new THREE.PlaneGeometry(DISPLAY_PLANE_W, DISPLAY_PLANE_W * DISPLAY_H / DISPLAY_W),
+  new THREE.MeshBasicMaterial({ map: sharpen(new THREE.CanvasTexture(sheenCanvas)), transparent: true, depthWrite: false, toneMapped: false }),
+);
+displaySheen.position.set(-0.5, 0.27, 0.8505);
+machine.add(displaySheen);
+
+let lastDisplayKey = '';
+// Fonts load asynchronously: repaint once they are ready so the screen never keeps fallback glyphs.
+document.fonts?.ready.then(() => { lastDisplayKey = ''; });
 function paintMachineDisplay(voltage: number, current: number, frequency: number, on: boolean, arc: boolean) {
+  // Only re-upload the texture when something visible actually changed.
+  const key = `${voltage.toFixed(1)}|${current.toFixed(2)}|${frequency.toFixed(1)}|${on}|${arc}`;
+  if (key === lastDisplayKey) return;
+  lastDisplayKey = key;
+
   const ctx = displayContext;
-  ctx.clearRect(0, 0, displayCanvas.width, displayCanvas.height);
-  const grad = ctx.createLinearGradient(0, 0, 720, 190);
-  grad.addColorStop(0, '#07140f'); grad.addColorStop(1, '#0b2119');
-  ctx.fillStyle = grad; ctx.fillRect(0, 0, 720, 190);
-  ctx.strokeStyle = '#214a3c'; ctx.lineWidth = 3; ctx.strokeRect(3, 3, 714, 184);
-  ctx.fillStyle = '#7db6a2'; ctx.font = '600 25px monospace'; ctx.fillText('AC OUTPUT  /  V-220', 22, 35);
-  ctx.fillStyle = on ? '#b8ffe8' : '#536b61'; ctx.font = '600 72px monospace'; ctx.fillText(`${voltage.toFixed(1)} V`, 22, 111);
-  ctx.fillStyle = on ? '#7ad8b5' : '#536b61'; ctx.font = '500 25px monospace'; ctx.fillText(`${current.toFixed(2)} A`, 26, 157);
-  ctx.fillStyle = '#5a9880'; ctx.font = '500 21px monospace'; ctx.fillText(`${frequency.toFixed(1)} Hz`, 238, 157);
-  const statusColor = arc ? '#ff9f66' : on ? '#47e0a5' : '#63766e';
-  ctx.fillStyle = statusColor; ctx.beginPath(); ctx.arc(659, 32, 8, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = statusColor; ctx.font = '600 20px monospace'; ctx.textAlign = 'right';
-  ctx.fillText(arc ? 'ARC' : on ? 'RUN' : 'OFF', 691, 66); ctx.textAlign = 'left';
-  ctx.fillStyle = '#426756'; ctx.font = '500 16px monospace'; ctx.fillText('SIMULATION', 570, 158);
+  const W = DISPLAY_W, H = DISPLAY_H;
+  const accent = arc ? '#ffa56b' : on ? '#4be1ac' : '#5b7068';
+  const bright = on ? '#c4ffec' : '#4d6a5f';
+  const soft = on ? '#8fe6c6' : '#4d6a5f';
+  const label = '#68a592';
+  const power = voltage * current;
+
+  ctx.setTransform(DISPLAY_SCALE, 0, 0, DISPLAY_SCALE, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  ctx.textAlign = 'left';
+
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#07130f'); bg.addColorStop(1, '#0a211a');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+
+  // Header bar: title + status chip.
+  ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fillRect(0, 0, W, 42);
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = label; ctx.font = `500 18px ${MONO}`; ctx.fillText('AC OUTPUT  ·  V-220  ·  SIM', 24, 22);
+  const status = arc ? 'ARC' : on ? 'RUN' : 'OFF';
+  ctx.beginPath(); ctx.roundRect(574, 9, 122, 25, 12.5);
+  ctx.fillStyle = on || arc ? `${accent}26` : 'rgba(255,255,255,0.05)'; ctx.fill();
+  ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.fillStyle = accent; ctx.beginPath(); ctx.arc(592, 21.5, 4.5, 0, Math.PI * 2); ctx.fill();
+  ctx.font = `500 16px ${MONO}`; ctx.textAlign = 'center'; ctx.fillText(status, 647, 22); ctx.textAlign = 'left';
+
+  // Main voltage read-out.
+  ctx.textBaseline = 'alphabetic';
+  const vText = voltage.toFixed(1);
+  ctx.fillStyle = bright; ctx.font = `500 78px ${MONO}`; ctx.fillText(vText, 24, 114);
+  const vw = ctx.measureText(vText).width;
+  ctx.fillStyle = soft; ctx.font = `500 32px ${MONO}`; ctx.fillText('V', 24 + vw + 8, 114);
+
+  // Output-level bar with ticks.
+  const bx = 430, bw = 266;
+  ctx.fillStyle = label; ctx.font = `500 14px ${MONO}`; ctx.fillText('OUTPUT LEVEL', bx, 72);
+  ctx.fillStyle = 'rgba(255,255,255,0.09)'; ctx.beginPath(); ctx.roundRect(bx, 84, bw, 10, 5); ctx.fill();
+  const frac = Math.max(0, Math.min(1, voltage / 220));
+  if (frac > 0.005) {
+    const fill = ctx.createLinearGradient(bx, 0, bx + bw, 0);
+    fill.addColorStop(0, '#2fa77f'); fill.addColorStop(1, accent);
+    ctx.fillStyle = fill; ctx.beginPath(); ctx.roundRect(bx, 84, Math.max(10, bw * frac), 10, 5); ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(160,220,196,0.35)';
+  for (let i = 0; i <= 4; i++) ctx.fillRect(bx + (bw * i) / 4 - 0.5, 100, 1, 6);
+  ctx.fillStyle = '#5a8574'; ctx.font = `500 13px ${MONO}`;
+  ctx.textAlign = 'left'; ctx.fillText('0', bx, 122);
+  ctx.textAlign = 'center'; ctx.fillText('110', bx + bw / 2, 122);
+  ctx.textAlign = 'right'; ctx.fillText('220', bx + bw, 122); ctx.textAlign = 'left';
+
+  // Secondary read-outs.
+  ctx.fillStyle = 'rgba(120,200,170,0.16)'; ctx.fillRect(24, 130, W - 48, 1);
+  const cells: Array<[string, string, string]> = [
+    ['CURRENT', current.toFixed(2), 'A'],
+    ['FREQUENCY', frequency.toFixed(1), 'Hz'],
+    ['POWER', Math.round(power).toLocaleString('en-US'), 'W'],
+  ];
+  cells.forEach(([name, value, unit], i) => {
+    const x = 24 + i * 232;
+    ctx.fillStyle = label; ctx.font = `500 14px ${MONO}`; ctx.fillText(name, x, 150);
+    ctx.fillStyle = soft; ctx.font = `500 28px ${MONO}`; ctx.fillText(value, x, 178);
+    const w = ctx.measureText(value).width;
+    ctx.fillStyle = label; ctx.font = `500 16px ${MONO}`; ctx.fillText(unit, x + w + 6, 178);
+  });
+
+  ctx.strokeStyle = 'rgba(75,225,172,0.28)'; ctx.lineWidth = 2; ctx.strokeRect(1, 1, W - 2, H - 2);
   displayTexture.needsUpdate = true;
 }
 
@@ -223,14 +373,28 @@ const rocker = new THREE.Mesh(new RoundedBoxGeometry(0.32, 0.17, 0.075, 4, 0.025
 rocker.position.z = 0.055;
 rocker.castShadow = true;
 powerButtonGroup.add(rocker);
-const rockerMark = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.095, 0.012), screwMat);
-rockerMark.position.set(0, 0, 0.099);
-powerButtonGroup.add(rockerMark);
+// Printed "I" (on) and "O" (off) symbols on the rocker face. They tilt with the rocker.
+function makeSymbolTexture(kind: 'I' | 'O') {
+  const c = document.createElement('canvas'); c.width = 128; c.height = 128;
+  const ctx = c.getContext('2d')!;
+  ctx.strokeStyle = '#fff'; ctx.fillStyle = '#fff'; ctx.lineCap = 'round';
+  if (kind === 'I') { ctx.lineWidth = 16; ctx.beginPath(); ctx.moveTo(64, 22); ctx.lineTo(64, 106); ctx.stroke(); }
+  else { ctx.lineWidth = 14; ctx.beginPath(); ctx.arc(64, 64, 34, 0, Math.PI * 2); ctx.stroke(); }
+  return sharpen(new THREE.CanvasTexture(c));
+}
+const symbolOnMat = new THREE.MeshBasicMaterial({ map: makeSymbolTexture('I'), transparent: true, toneMapped: false, depthWrite: false });
+const symbolOffMat = new THREE.MeshBasicMaterial({ map: makeSymbolTexture('O'), transparent: true, toneMapped: false, depthWrite: false });
+const symbolOn = new THREE.Mesh(new THREE.PlaneGeometry(0.075, 0.075), symbolOnMat);
+symbolOn.position.set(0, 0.042, 0.0385);
+const symbolOff = new THREE.Mesh(new THREE.PlaneGeometry(0.075, 0.075), symbolOffMat);
+symbolOff.position.set(0, -0.042, 0.0385);
+rocker.add(symbolOn, symbolOff);
+let rockerTarget = 0.2;
 const physicalPowerLedMat = mat('#762e32', 0.1, 0.2, '#ff2638', 0.65);
 const physicalPowerLed = new THREE.Mesh(new THREE.SphereGeometry(0.042, 18, 18), physicalPowerLedMat);
 physicalPowerLed.position.set(1.12, 0.36, 0.83);
 machine.add(physicalPowerLed);
-const powerLabel = new THREE.Mesh(new THREE.PlaneGeometry(0.46, 0.1), new THREE.MeshBasicMaterial({ map: makeLabelTexture('POWER', 'ON / OFF'), transparent: true, toneMapped: false }));
+const powerLabel = new THREE.Mesh(new THREE.PlaneGeometry(0.46, 0.1), new THREE.MeshBasicMaterial({ map: makeLabelTexture('POWER', 'I = ON  O = OFF', 4.6), transparent: true, toneMapped: false }));
 powerLabel.position.set(0.81, 0.18, 0.795);
 machine.add(powerLabel);
 
@@ -265,7 +429,7 @@ for (let i = 0; i < 11; i++) {
   tick.rotation.z = -angle;
   dialGroup.add(tick);
 }
-const dialLabel = new THREE.Mesh(new THREE.PlaneGeometry(0.52, 0.1), new THREE.MeshBasicMaterial({ map: makeLabelTexture('OUTPUT LEVEL', '0 - 220 V AC'), transparent: true, toneMapped: false }));
+const dialLabel = new THREE.Mesh(new THREE.PlaneGeometry(0.52, 0.1), new THREE.MeshBasicMaterial({ map: makeLabelTexture('OUTPUT LEVEL', '0 - 220 V AC', 5.2), transparent: true, toneMapped: false }));
 dialLabel.position.set(0.81, -0.47, 0.795);
 machine.add(dialLabel);
 
@@ -496,8 +660,8 @@ function setVoltage(value: number) {
 }
 function setPower(value: boolean) {
   isOn = value;
-  powerBtn.setAttribute('aria-pressed', String(isOn));
-  powerBtn.querySelector('.switch-label')!.textContent = isOn ? 'ON' : 'OFF';
+  powerBtn.setAttribute('aria-checked', String(isOn));
+  powerBtn.classList.toggle('is-on', isOn);
   powerDescription.textContent = isOn ? 'Output stage is running' : 'Output stage is disabled';
   systemStateTop.textContent = isOn ? 'SYSTEM RUNNING' : 'SYSTEM STANDBY';
   document.querySelector('.system-pill')?.classList.toggle('running', isOn);
@@ -507,7 +671,9 @@ function setPower(value: boolean) {
   physicalPowerLedMat.color.set(isOn ? '#35d89d' : '#762e32');
   physicalPowerLedMat.emissive.set(isOn ? '#20e98a' : '#ff2638');
   physicalPowerLedMat.emissiveIntensity = isOn ? 1.5 : 0.45;
-  rocker.position.x = isOn ? 0.045 : -0.045;
+  rockerTarget = isOn ? -0.2 : 0.2; // top edge pressed in = ON (animated in the render loop)
+  symbolOnMat.color.set(isOn ? '#5cf2bf' : '#7d8890');
+  symbolOffMat.color.set(isOn ? '#56606a' : '#ff6f78');
   rockerMat.color.set(isOn ? '#174e3d' : '#242a2e');
   rockerMat.emissive.set(isOn ? '#1d9a6d' : '#000000');
   rockerMat.emissiveIntensity = isOn ? 0.35 : 0;
@@ -523,7 +689,7 @@ function separateWires() {
 }
 function resetCamera() {
   camera.position.copy(defaultCamera);
-  controls.target.set(0, -0.12, 0);
+  controls.target.copy(defaultTarget);
   controls.update();
   detailView = false;
   $('explodeBtn').classList.remove('active');
@@ -602,8 +768,8 @@ $('explodeBtn').addEventListener('click', () => {
   $('explodeBtn').classList.toggle('active', detailView);
   $('explodeBtn').setAttribute('aria-pressed', String(detailView));
   $('explodeBtn').innerHTML = detailView ? 'WIDE VIEW <span class="toggle-track"><i></i></span>' : 'DETAIL VIEW <span class="toggle-track"><i></i></span>';
-  camera.position.set(detailView ? 0.15 : defaultCamera.x, detailView ? 0.28 : defaultCamera.y, detailView ? 6.65 : defaultCamera.z);
-  controls.target.set(0, detailView ? -0.18 : -0.12, 0);
+  camera.position.copy(detailView ? detailCamera : defaultCamera);
+  controls.target.copy(detailView ? detailTarget : defaultTarget);
   controls.update();
 });
 $('resetViewBtn').addEventListener('click', resetCamera);
@@ -623,10 +789,17 @@ window.addEventListener('keydown', (event) => {
 });
 
 function resize() {
-  const width = Math.max(1, sceneWrap.clientWidth);
-  const height = Math.max(1, sceneWrap.clientHeight);
+  // Whole-pixel sizes avoid the sub-pixel resampling that makes a canvas look soft.
+  const width = Math.max(1, Math.round(sceneWrap.clientWidth));
+  const height = Math.max(1, Math.round(sceneWrap.clientHeight));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.setSize(width, height, false);
   camera.aspect = width / height;
+  // Narrow viewports widen the vertical FOV so the machine + both cable tips stay in frame.
+  const minAspect = 1.45;
+  camera.fov = camera.aspect >= minAspect
+    ? BASE_FOV
+    : Math.min(66, THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(BASE_FOV / 2)) * minAspect / camera.aspect)));
   camera.updateProjectionMatrix();
 }
 new ResizeObserver(resize).observe(sceneWrap);
@@ -634,6 +807,7 @@ window.addEventListener('resize', resize);
 resize();
 setVoltage(220);
 setPower(false);
+rocker.rotation.x = rockerTarget;
 separateWires();
 paintMachineDisplay(0, 0, 0, false, false);
 
@@ -644,6 +818,7 @@ function animate() {
   const dt = Math.min(clock.getDelta(), 0.04);
   const elapsed = clock.elapsedTime;
   controls.update();
+  rocker.rotation.x += (rockerTarget - rocker.rotation.x) * Math.min(1, dt * 18); // smooth rocker tilt
 
   // The object remains an enclosed machine; only studio lights and status LEDs move.
   frontFill.intensity = isOn ? 24 + Math.sin(elapsed * 3.4) * 1.2 : 18;
