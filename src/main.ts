@@ -122,33 +122,6 @@ floorHalo.rotation.x = -Math.PI / 2;
 floorHalo.position.set(0, -1.195, -0.05);
 scene.add(floorHalo);
 
-// Real floor grid in 3D (replaces the old CSS overlay that sat on top of the
-// canvas and drew lines across the machine). Fades out radially.
-function makeFloorGridTexture() {
-  const size = 2048, cell = 128;
-  const c = document.createElement('canvas'); c.width = size; c.height = size;
-  const ctx = c.getContext('2d')!;
-  const line = (step: number, width: number, alpha: number) => {
-    ctx.strokeStyle = `rgba(160,182,196,${alpha})`; ctx.lineWidth = width; ctx.beginPath();
-    for (let p = 0; p <= size; p += step) { ctx.moveTo(p, 0); ctx.lineTo(p, size); ctx.moveTo(0, p); ctx.lineTo(size, p); }
-    ctx.stroke();
-  };
-  line(cell / 4, 1, 0.07);
-  line(cell, 2, 0.22);
-  ctx.globalCompositeOperation = 'destination-in';
-  const fade = ctx.createRadialGradient(size / 2, size / 2, size * 0.08, size / 2, size / 2, size / 2);
-  fade.addColorStop(0, 'rgba(0,0,0,1)'); fade.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = fade; ctx.fillRect(0, 0, size, size);
-  return sharpen(new THREE.CanvasTexture(c));
-}
-const floorGrid = new THREE.Mesh(
-  new THREE.PlaneGeometry(16, 16),
-  new THREE.MeshBasicMaterial({ map: makeFloorGridTexture(), transparent: true, depthWrite: false, toneMapped: false }),
-);
-floorGrid.rotation.x = -Math.PI / 2;
-floorGrid.position.set(0, -1.203, 0);
-scene.add(floorGrid);
-
 const machine = new THREE.Group();
 scene.add(machine);
 
