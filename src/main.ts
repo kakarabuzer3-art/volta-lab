@@ -627,7 +627,6 @@ const metricVoltage = $('metricVoltage');
 const metricCurrent = $('metricCurrent');
 const metricPower = $('metricPower');
 const metricFrequency = $('metricFrequency');
-const systemStateTop = $('systemStateTop');
 const arcStatus = $('arcStatus');
 const arcState = $('arcState');
 const connectionPill = $('connectionPill');
@@ -663,8 +662,6 @@ function setPower(value: boolean) {
   powerBtn.setAttribute('aria-checked', String(isOn));
   powerBtn.classList.toggle('is-on', isOn);
   powerDescription.textContent = isOn ? 'Output stage is running' : 'Output stage is disabled';
-  systemStateTop.textContent = isOn ? 'SYSTEM RUNNING' : 'SYSTEM STANDBY';
-  document.querySelector('.system-pill')?.classList.toggle('running', isOn);
   flowText.textContent = isOn ? 'READY' : 'INACTIVE';
   powerFlow.classList.toggle('active', isOn);
   sceneStatusText.textContent = isOn ? 'OUTPUT ENABLED' : 'MACHINE STANDBY';
@@ -772,7 +769,16 @@ $('explodeBtn').addEventListener('click', () => {
   controls.target.copy(detailView ? detailTarget : defaultTarget);
   controls.update();
 });
-$('resetViewBtn').addEventListener('click', resetCamera);
+
+// Control panel drawer: small corner button opens / closes it (also P / Escape).
+const stageEl = document.querySelector('.stage') as HTMLElement;
+const panelToggle = $('panelToggle') as HTMLButtonElement;
+function setPanel(open: boolean) {
+  stageEl.classList.toggle('panel-open', open);
+  panelToggle.setAttribute('aria-expanded', String(open));
+  panelToggle.setAttribute('aria-label', open ? 'Close control panel' : 'Open control panel');
+}
+panelToggle.addEventListener('click', () => setPanel(!stageEl.classList.contains('panel-open')));
 
 // Keyboard shortcuts: Space power, arrows voltage, T connect tips, S separate,
 // X emergency power-off, R reset camera.
@@ -786,6 +792,8 @@ window.addEventListener('keydown', (event) => {
   else if (event.key.toLowerCase() === 's') separateWires();
   else if (event.key.toLowerCase() === 'x') setPower(false);
   else if (event.key.toLowerCase() === 'r') resetCamera();
+  else if (event.key.toLowerCase() === 'p') setPanel(!stageEl.classList.contains('panel-open'));
+  else if (event.key === 'Escape') setPanel(false);
 });
 
 function resize() {
@@ -895,4 +903,3 @@ function animate() {
   renderer.render(scene, camera);
 }
 animate();
-$('rendererLabel').textContent = renderer.capabilities.isWebGL2 ? 'WEBGL 2' : 'WEBGL';

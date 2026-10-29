@@ -12,21 +12,8 @@
   </head>
   <body>
     <div id="app">
-      <header class="topbar">
-        <a class="brand" href="#" aria-label="Volta Lab home">
-          <span class="brand-mark"><span></span><span></span><span></span></span>
-          <span class="brand-copy"><b>VOLTA<span>LAB</span></b><small>INTERACTIVE POWER SYSTEMS</small></span>
-        </a>
-        <div class="topbar-center"><span class="live-dot"></span> INDUSTRIAL SIMULATION <span class="topbar-divider">/</span> VOLTA V-220</div>
-        <div class="topbar-right"><span class="system-pill"><i></i><span id="systemStateTop">SYSTEM STANDBY</span></span><button id="resetViewBtn" type="button" class="icon-button" title="Reset camera view" aria-label="Reset camera view">⟳</button></div>
-      </header>
-
-      <main class="workspace">
-        <section class="viewport-panel" aria-label="Interactive 3D generator scene">
-          <div class="viewport-head">
-            <div><div class="eyebrow">LAB / 001 <span class="eyebrow-line"></span> INDUSTRIAL POWER UNIT</div><h1>Power <em>Unit</em></h1><p>Enclosed black-metal machine · interactive front panel</p></div>
-            <div class="view-tools"><span class="viewport-badge"><span class="tiny-live"></span> REAL-TIME MODEL</span><button id="explodeBtn" class="subtle-button" type="button" aria-pressed="false">DETAIL VIEW <span class="toggle-track"><i></i></span></button></div>
-          </div>
+      <main class="stage">
+        <section class="scene-section" aria-label="Interactive 3D power unit">
           <div id="sceneWrap" class="scene-wrap">
             <canvas id="sceneCanvas" aria-label="3D industrial power unit. Drag either cable tip; drag the front dial to change the output setting; drag empty space to orbit."></canvas>
             <div class="scene-vignette"></div>
@@ -38,13 +25,16 @@
             <div class="wire-tip-label left-tip-label">LIVE LEAD <span>01</span></div>
             <div class="wire-tip-label right-tip-label">RETURN LEAD <span>02</span></div>
           </div>
-          <div class="viewport-footer">
-            <div class="footer-legend"><span><i class="legend-copper"></i> MATTE-BLACK ENCLOSURE</span><span><i class="legend-blue"></i> DIGITAL FRONT DISPLAY</span><span><i class="legend-wire"></i> INSULATED OUTPUT LEADS</span></div>
-            <div class="camera-label">CAMERA <b>FREE ORBIT</b><span class="footer-sep">/</span> RENDER <b>WEBGL</b></div>
-          </div>
         </section>
 
-        <aside class="control-column">
+        <div class="stage-tools">
+          <button id="explodeBtn" class="subtle-button" type="button" aria-pressed="false">DETAIL VIEW <span class="toggle-track"><i></i></span></button>
+          <button id="panelToggle" class="panel-toggle" type="button" aria-expanded="false" aria-controls="controlPanel" aria-label="Open control panel" title="Controls (P)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path class="icon-open" d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle class="icon-open" cx="16" cy="7" r="2"/><circle class="icon-open" cx="8" cy="17" r="2"/><path class="icon-close" d="M6 6l12 12M18 6L6 18"/></svg>
+          </button>
+        </div>
+
+        <aside id="controlPanel" class="control-column" aria-label="Machine controls">
           <section class="control-card power-card">
             <div class="card-heading"><div><span class="section-index">01</span><h2>Machine Control</h2></div><span class="card-dot"></span></div>
             <div class="machine-identity"><div class="machine-icon"><svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="17"/><circle cx="24" cy="24" r="8"/><path d="M24 7v9M24 32v9M7 24h9M32 24h9M12 12l7 7M29 29l7 7M36 12l-7 7M19 29l-7 7"/></svg></div><div class="identity-copy"><strong>INDUSTRIAL POWER UNIT</strong><span>V-220 / DIGITAL OUTPUT MODEL</span></div><span class="model-tag">V-220</span></div>
@@ -80,7 +70,6 @@
           <section class="safety-card"><span class="safety-icon">!</span><div><strong>SIMULATION ONLY · 220 V CAN KILL</strong><p>This is a visual software model. Never reproduce wire-touching or sparking experiments with a real power supply. Real arc and shock hazards depend on source impedance, contact geometry, insulation, environment and exposure.</p></div></section>
         </aside>
       </main>
-      <footer class="app-footer"><span>VOLTA LAB <b>0.2.0 INDUSTRIAL EDITION</b></span><span>EDUCATIONAL SIMULATION <i>·</i> NOT FOR ELECTRICAL DESIGN OR SAFETY DECISIONS</span><span>THREE.JS <b id="rendererLabel">WEBGL</b></span></footer>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
