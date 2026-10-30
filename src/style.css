@@ -60,6 +60,7 @@ button:focus-visible, input:focus-visible, a:focus-visible {
    slides over the right edge and is toggled by a small corner button. */
 html, body { height: 100%; overflow: hidden; }
 #app { position: fixed; inset: 0; }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .stage { position: absolute; inset: 0; }
 .scene-section { position: absolute; inset: 0; }
 

@@ -1,7 +1,12 @@
 # Build / QA status
 
-- TypeScript syntax transpilation: PASS (global TypeScript transpile check; syntax only).
-- HTML-to-code DOM ID coverage: PASS (no code-referenced element IDs missing from `index.html`).
-- Package JSON parse: PASS.
-- Full dependency-backed `tsc --noEmit` / Vite production build: NOT VERIFIED in the authoring environment. `npm install` could not resolve `registry.npmjs.org` from this environment, so Three.js and type declarations were unavailable for a full type-check or browser smoke test.
-- Do not interpret this as a claim that all browser interactions have passed runtime QA. Run `npm install`, `npm run build`, then manually check the controls in a modern WebGL-capable browser.
+Last verified 2026-10-30 (AC/DC selector + electrical model).
+
+| Check | Result |
+|---|---|
+| `npm test` (12 electrical-model tests) | PASS |
+| `tsc --noEmit` (strict) against `three` r186.1 + `@types/three` 0.186 | PASS |
+| Production bundle (bun, same `three` r186.1) | PASS |
+| Real-browser run (Chromium, software WebGL): 3D AC/DC selector, rocker, open/short circuit, current limit, protection trip and reset, M / T / S / X / Space keys, 0–415 V range | PASS (24/24) |
+| `npm run build` with Vite (`vite build`) | NOT RUN: the npm registry is blocked in the authoring sandbox, so Vite could not be installed. Run `npm install && npm run build` locally. |
+| Real GPU / Windows / Safari / mobile touch | NOT RUN |

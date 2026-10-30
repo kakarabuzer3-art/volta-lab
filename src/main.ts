@@ -3,13 +3,13 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import './style.css';
 
-// Real-world mains reference (IEC 60038 / national grids): single-phase 220-240 V,
-// three-phase line-to-line 400 V (415 V on 240/415 V grids, e.g. Qatar, Kuwait, Oman).
-// 415 V is therefore the highest common nominal mains voltage this unit can output.
-const MAX_VOLTAGE = 415;
-const SOURCE_RESISTANCE = 27.5; // ohms, shown in the telemetry card
-const MAX_CURRENT = MAX_VOLTAGE / SOURCE_RESISTANCE; // Ohm's law at full output
-const MAX_POWER = MAX_VOLTAGE * MAX_CURRENT;
+import {
+  CONTACT_RESISTANCE, CURRENT_LIMIT_A, MAX_VOLTAGE, TRIP_DELAY_S, advanceProtection, solveCircuit,
+} from './electrical.ts';
+import type { SourceMode, Solution } from './electrical.ts';
+
+// All electrical behaviour (AC RMS / DC, open vs short circuit, current limit, protection)
+// is computed in ./electrical.ts. This file only draws the result and routes input.
 const SPARK_REF_VOLTAGE = 220; // spark size at this setting is the original look; higher voltage grows it
 const SPARK_MAX = 192;
 
@@ -20,7 +20,7 @@ const sceneWrap = $('sceneWrap');
 // -----------------------------------------------------------------------------
 // Volta Lab Industrial Edition. The 3D model is an enclosed consumer/workshop-
 // style power unit. Telemetry and sparks are intentionally labelled simulation.
-// This is not a validated electrical, arc, or human-shock model.
+// This is not a validated electrical, arc, or human-shock model; the spark is purely visual.
 // -----------------------------------------------------------------------------
 // Studio backdrop painted as a dithered radial gradient (a flat colour or a CSS
 // overlay would either look dead or put a haze layer on top of the machine).
@@ -226,7 +226,7 @@ const brandLabel = new THREE.Mesh(
   new THREE.PlaneGeometry(1.5, 0.2),
   new THREE.MeshBasicMaterial({ map: makeLabelTexture('VOLTA LAB  /  V-415', 'INDUSTRIAL POWER UNIT'), transparent: true, toneMapped: false }),
 );
-brandLabel.position.set(-0.74, 0.655, 0.755);
+brandLabel.position.set(-0.64, 0.655, 0.755);
 machine.add(brandLabel);
 
 // Inset digital display mounted on the casing. Drawn on a 720x190 logical grid but
@@ -267,19 +267,22 @@ machine.add(displaySheen);
 let lastDisplayKey = '';
 // Fonts load asynchronously: repaint once they are ready so the screen never keeps fallback glyphs.
 document.fonts?.ready.then(() => { lastDisplayKey = ''; });
-function paintMachineDisplay(voltage: number, current: number, frequency: number, on: boolean, arc: boolean) {
+function paintMachineDisplay(sol: Solution) {
+  const ac = sol.mode === 'AC';
+  const live = sol.state === 'open' || sol.state === 'short';
+  const status = sol.state === 'protected' ? 'TRIP' : sol.state === 'short' ? 'SHORT' : sol.state === 'open' ? 'RUN' : 'OFF';
+  const freqText = ac ? sol.frequency.toFixed(1) : 'DC';
   // Only re-upload the texture when something visible actually changed.
-  const key = `${voltage.toFixed(1)}|${current.toFixed(2)}|${frequency.toFixed(1)}|${on}|${arc}`;
+  const key = [sol.mode, sol.state, sol.terminalVoltage.toFixed(1), sol.current.toFixed(2), Math.round(sol.power), sol.openCircuitVoltage.toFixed(0), sol.peakVoltage.toFixed(1), freqText, sol.currentLimited].join('|');
   if (key === lastDisplayKey) return;
   lastDisplayKey = key;
 
   const ctx = displayContext;
   const W = DISPLAY_W, H = DISPLAY_H;
-  const accent = arc ? '#ffa56b' : on ? '#4be1ac' : '#5b7068';
-  const bright = on ? '#c4ffec' : '#4d6a5f';
-  const soft = on ? '#8fe6c6' : '#4d6a5f';
+  const accent = sol.state === 'protected' ? '#ff7a7a' : sol.state === 'short' ? '#ffa56b' : live ? '#4be1ac' : '#5b7068';
+  const bright = live ? '#c4ffec' : '#4d6a5f';
+  const soft = live ? '#8fe6c6' : '#4d6a5f';
   const label = '#68a592';
-  const power = voltage * current;
 
   ctx.setTransform(DISPLAY_SCALE, 0, 0, DISPLAY_SCALE, 0, 0);
   ctx.clearRect(0, 0, W, H);
@@ -289,29 +292,30 @@ function paintMachineDisplay(voltage: number, current: number, frequency: number
   bg.addColorStop(0, '#07130f'); bg.addColorStop(1, '#0a211a');
   ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
 
-  // Header bar: title + status chip.
+  // Header bar: source mode + status chip.
   ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fillRect(0, 0, W, 42);
   ctx.textBaseline = 'middle';
-  ctx.fillStyle = label; ctx.font = `500 18px ${MONO}`; ctx.fillText('AC OUTPUT  ·  V-415  ·  SIM', 24, 22);
-  const status = arc ? 'ARC' : on ? 'RUN' : 'OFF';
+  ctx.fillStyle = label; ctx.font = `500 18px ${MONO}`; ctx.fillText(`${sol.mode} OUTPUT  ·  V-415  ·  SIM`, 24, 22);
   ctx.beginPath(); ctx.roundRect(574, 9, 122, 25, 12.5);
-  ctx.fillStyle = on || arc ? `${accent}26` : 'rgba(255,255,255,0.05)'; ctx.fill();
+  ctx.fillStyle = sol.state === 'off' ? 'rgba(255,255,255,0.05)' : `${accent}26`; ctx.fill();
   ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.stroke();
   ctx.fillStyle = accent; ctx.beginPath(); ctx.arc(592, 21.5, 4.5, 0, Math.PI * 2); ctx.fill();
   ctx.font = `500 16px ${MONO}`; ctx.textAlign = 'center'; ctx.fillText(status, 647, 22); ctx.textAlign = 'left';
 
-  // Main voltage read-out.
+  // Main voltage read-out: RMS for AC, steady value for DC.
   ctx.textBaseline = 'alphabetic';
-  const vText = voltage.toFixed(1);
+  const vText = sol.terminalVoltage.toFixed(1);
   ctx.fillStyle = bright; ctx.font = `500 78px ${MONO}`; ctx.fillText(vText, 24, 114);
   const vw = ctx.measureText(vText).width;
   ctx.fillStyle = soft; ctx.font = `500 32px ${MONO}`; ctx.fillText('V', 24 + vw + 8, 114);
+  ctx.fillStyle = label; ctx.font = `500 16px ${MONO}`; ctx.fillText(ac ? 'RMS' : 'DC', 24 + vw + 8 + 24, 114);
 
-  // Output-level bar with ticks.
+  // Set-point bar (open-circuit voltage) with ticks, plus peak value (AC) or polarity (DC).
   const bx = 430, bw = 266;
-  ctx.fillStyle = label; ctx.font = `500 14px ${MONO}`; ctx.fillText('OUTPUT LEVEL', bx, 72);
+  ctx.fillStyle = label; ctx.font = `500 14px ${MONO}`; ctx.fillText('SET', bx, 72);
+  ctx.textAlign = 'right'; ctx.fillText(ac ? `PEAK ${sol.peakVoltage.toFixed(1)} V` : 'A: +   B: −', bx + bw, 72); ctx.textAlign = 'left';
   ctx.fillStyle = 'rgba(255,255,255,0.09)'; ctx.beginPath(); ctx.roundRect(bx, 84, bw, 10, 5); ctx.fill();
-  const frac = Math.max(0, Math.min(1, voltage / MAX_VOLTAGE));
+  const frac = Math.max(0, Math.min(1, sol.openCircuitVoltage / MAX_VOLTAGE));
   if (frac > 0.005) {
     const fill = ctx.createLinearGradient(bx, 0, bx + bw, 0);
     fill.addColorStop(0, '#2fa77f'); fill.addColorStop(1, accent);
@@ -324,12 +328,12 @@ function paintMachineDisplay(voltage: number, current: number, frequency: number
   ctx.textAlign = 'center'; ctx.fillText(String(Math.round(MAX_VOLTAGE / 2)), bx + bw / 2, 122);
   ctx.textAlign = 'right'; ctx.fillText(String(MAX_VOLTAGE), bx + bw, 122); ctx.textAlign = 'left';
 
-  // Secondary read-outs.
+  // Secondary read-outs. DC has no frequency, so it shows "DC" instead of a number.
   ctx.fillStyle = 'rgba(120,200,170,0.16)'; ctx.fillRect(24, 130, W - 48, 1);
   const cells: Array<[string, string, string]> = [
-    ['CURRENT', current.toFixed(2), 'A'],
-    ['FREQUENCY', frequency.toFixed(1), 'Hz'],
-    ['POWER', Math.round(power).toLocaleString('en-US'), 'W'],
+    [sol.currentLimited ? 'CURRENT · LIMIT' : 'CURRENT', sol.current.toFixed(2), 'A'],
+    ['FREQUENCY', freqText, ac ? 'Hz' : ''],
+    ['POWER', Math.round(sol.power).toLocaleString('en-US'), 'W'],
   ];
   cells.forEach(([name, value, unit], i) => {
     const x = 24 + i * 232;
@@ -412,9 +416,51 @@ for (let i = 0; i < 11; i++) {
   tick.rotation.z = -angle;
   dialGroup.add(tick);
 }
-const dialLabel = new THREE.Mesh(new THREE.PlaneGeometry(0.52, 0.1), new THREE.MeshBasicMaterial({ map: makeLabelTexture('OUTPUT LEVEL', `0 - ${MAX_VOLTAGE} V AC`, 5.2), transparent: true, toneMapped: false }));
+const dialLabel = new THREE.Mesh(new THREE.PlaneGeometry(0.52, 0.1), new THREE.MeshBasicMaterial({ map: makeLabelTexture('OUTPUT LEVEL', `0 - ${MAX_VOLTAGE} V`, 5.2), transparent: true, toneMapped: false }));
 dialLabel.position.set(0.81, -0.47, 0.795);
 machine.add(dialLabel);
+
+// Physical AC / DC mode selector: two-position industrial rotary lever. Left = AC, right = DC.
+function makeWhiteTextTexture(text: string, aspect: number) {
+  const c = document.createElement('canvas'); c.width = Math.round(160 * aspect); c.height = 160;
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = '700 104px Arial, Helvetica, sans-serif'; ctx.fillText(text, c.width / 2, c.height / 2 + 6);
+  return sharpen(new THREE.CanvasTexture(c));
+}
+const modeGroup = new THREE.Group();
+modeGroup.position.set(-0.5, -0.30, 0.80);
+modeGroup.userData.control = 'mode';
+machine.add(modeGroup);
+const modeBezel = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.18, 0.06, 40), insetMat);
+modeBezel.rotation.x = Math.PI / 2; modeBezel.castShadow = true;
+modeGroup.add(modeBezel);
+const modeRing = new THREE.Mesh(new THREE.TorusGeometry(0.165, 0.014, 10, 48), edgeSteel);
+modeRing.position.z = 0.03;
+modeGroup.add(modeRing);
+const modeBody = new THREE.Mesh(new THREE.CylinderGeometry(0.105, 0.115, 0.07, 32), mat('#13181c', 0.75, 0.3));
+modeBody.rotation.x = Math.PI / 2; modeBody.position.z = 0.05; modeBody.castShadow = true;
+modeGroup.add(modeBody);
+const modeLever = new THREE.Group();
+modeLever.position.z = 0.085;
+const modeLeverBar = new THREE.Mesh(new RoundedBoxGeometry(0.05, 0.17, 0.045, 3, 0.012), edgeSteel);
+modeLeverBar.position.y = 0.045; modeLeverBar.castShadow = true;
+const modeLeverTip = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.05, 0.008), screenGlow);
+modeLeverTip.position.set(0, 0.1, 0.026);
+modeLever.add(modeLeverBar, modeLeverTip);
+modeGroup.add(modeLever);
+const MODE_LEVER_ANGLE = 0.62; // rad; +z rotation tilts the lever left (AC), -z right (DC)
+let modeLeverTarget = MODE_LEVER_ANGLE;
+const modeAcMat = new THREE.MeshBasicMaterial({ map: makeWhiteTextTexture('AC', 1.5), transparent: true, toneMapped: false, depthWrite: false });
+const modeDcMat = new THREE.MeshBasicMaterial({ map: makeWhiteTextTexture('DC', 1.5), transparent: true, toneMapped: false, depthWrite: false });
+const modeTitleMat = new THREE.MeshBasicMaterial({ map: makeWhiteTextTexture('AC / DC', 3.6), transparent: true, toneMapped: false, depthWrite: false, color: '#a9b6c0' });
+const modeAcLabel = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.1), modeAcMat);
+const modeDcLabel = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.1), modeDcMat);
+modeAcLabel.position.set(-0.81, -0.235, 0.795);
+modeDcLabel.position.set(-0.19, -0.235, 0.795);
+const modeTitle = new THREE.Mesh(new THREE.PlaneGeometry(0.36, 0.1), modeTitleMat);
+modeTitle.position.set(-0.5, -0.095, 0.795);
+machine.add(modeAcLabel, modeDcLabel, modeTitle);
 
 // Two front-mounted insulated output posts.
 const terminalPositions = [new THREE.Vector3(-0.65, -0.635, 0.77), new THREE.Vector3(0.65, -0.635, 0.77)];
@@ -581,6 +627,10 @@ function triggerSpark(center: THREE.Vector3) {
 // UI and interaction state
 // -----------------------------------------------------------------------------
 let isOn = false;
+let sourceMode: SourceMode = 'AC';
+let tripped = false; // protection latch, cleared by cycling main power
+let protectionTimer = 0;
+let solution: Solution = solveCircuit({ mode: 'AC', powered: false, setVoltage: 220, shorted: false, tripped: false });
 let targetVoltage = 220;
 let previousContact = false;
 let activeTip = -1;
@@ -626,6 +676,11 @@ const voltageBar = $('voltageBar') as HTMLElement;
 const currentBar = $('currentBar') as HTMLElement;
 const powerBar = $('powerBar') as HTMLElement;
 const frequencyBar = $('frequencyBar') as HTMLElement;
+const voltageUnit = $('voltageUnit');
+const metricVoltageUnit = $('metricVoltageUnit');
+const floatingUnit = $('floatingUnit');
+const sourceResistanceText = $('sourceResistance');
+const srStatus = $('srStatus');
 
 function updateRangePaint() {
   voltageSlider.style.setProperty('--range-fill', `${(targetVoltage / MAX_VOLTAGE) * 100}%`);
@@ -643,8 +698,21 @@ function setVoltage(value: number) {
     button.classList.toggle('preset-active', Number(button.dataset.voltage) === targetVoltage);
   });
 }
+function announce(message: string) { srStatus.textContent = message; }
+function setMode(mode: SourceMode) {
+  sourceMode = mode;
+  modeLeverTarget = mode === 'AC' ? MODE_LEVER_ANGLE : -MODE_LEVER_ANGLE;
+  modeAcMat.color.set(mode === 'AC' ? '#5cf2bf' : '#5d6a74');
+  modeDcMat.color.set(mode === 'DC' ? '#5cf2bf' : '#5d6a74');
+  voltageUnit.textContent = mode === 'AC' ? 'V AC RMS' : 'V DC';
+  metricVoltageUnit.textContent = mode === 'AC' ? 'V RMS' : 'V DC';
+  floatingUnit.textContent = mode === 'AC' ? 'V RMS' : 'V DC';
+  canvas.dataset.sourceMode = mode;
+  announce(mode === 'AC' ? 'Source mode AC, 50 hertz, voltage shown as RMS.' : 'Source mode DC, steady voltage, frequency 0 hertz.');
+}
 function setPower(value: boolean) {
   isOn = value;
+  tripped = false; protectionTimer = 0; // cycling main power clears a protective shutdown
   powerBtn.setAttribute('aria-checked', String(isOn));
   powerBtn.classList.toggle('is-on', isOn);
   powerDescription.textContent = isOn ? 'Output stage is running' : 'Output stage is disabled';
@@ -661,6 +729,7 @@ function setPower(value: boolean) {
   rockerMat.emissive.set(isOn ? '#1d9a6d' : '#000000');
   rockerMat.emissiveIntensity = isOn ? 0.35 : 0;
   if (!isOn) { arcStatus.classList.remove('active'); arcState.textContent = 'IDLE'; }
+  announce(isOn ? 'Main power on.' : 'Main power off.');
 }
 function touchWires() {
   setTip(0, -0.23, -1.12);
@@ -691,7 +760,7 @@ canvas.addEventListener('pointerdown', (event) => {
     event.preventDefault();
     return;
   }
-  const controlsHits = raycaster.intersectObjects([powerButtonGroup, dialGroup], true);
+  const controlsHits = raycaster.intersectObjects([powerButtonGroup, dialGroup, modeGroup], true);
   if (controlsHits.length) {
     let node: THREE.Object3D | null = controlsHits[0].object;
     while (node && !node.userData.control) node = node.parent;
@@ -699,6 +768,14 @@ canvas.addEventListener('pointerdown', (event) => {
       controls.enabled = false;
       canvas.setPointerCapture(event.pointerId);
       setPower(!isOn);
+      canvas.style.cursor = 'pointer';
+      event.preventDefault();
+      return;
+    }
+    if (node?.userData.control === 'mode') {
+      controls.enabled = false;
+      canvas.setPointerCapture(event.pointerId);
+      setMode(sourceMode === 'AC' ? 'DC' : 'AC');
       canvas.style.cursor = 'pointer';
       event.preventDefault();
       return;
@@ -727,7 +804,7 @@ canvas.addEventListener('pointermove', (event) => {
     return;
   }
   setMouse(event); raycaster.setFromCamera(mouse, camera);
-  const hits = raycaster.intersectObjects(tipTargets, true).length || raycaster.intersectObjects([powerButtonGroup, dialGroup], true).length;
+  const hits = raycaster.intersectObjects(tipTargets, true).length || raycaster.intersectObjects([powerButtonGroup, dialGroup, modeGroup], true).length;
   canvas.style.cursor = hits ? 'pointer' : 'grab';
 });
 function endPointer(event?: PointerEvent) {
@@ -767,7 +844,7 @@ function setPanel(open: boolean) {
 panelToggle.addEventListener('click', () => setPanel(!stageEl.classList.contains('panel-open')));
 
 // Keyboard shortcuts: Space power, arrows voltage, T connect tips, S separate,
-// X emergency power-off, R reset camera.
+// X emergency power-off, M switch AC/DC, R reset camera.
 window.addEventListener('keydown', (event) => {
   const target = event.target as HTMLElement;
   if (target.matches('input,textarea,button,select') && (event.key === ' ' || event.key.startsWith('Arrow'))) return;
@@ -777,6 +854,7 @@ window.addEventListener('keydown', (event) => {
   else if (event.key.toLowerCase() === 't') touchWires();
   else if (event.key.toLowerCase() === 's') separateWires();
   else if (event.key.toLowerCase() === 'x') setPower(false);
+  else if (event.key.toLowerCase() === 'm') setMode(sourceMode === 'AC' ? 'DC' : 'AC');
   else if (event.key.toLowerCase() === 'r') resetCamera();
   else if (event.key.toLowerCase() === 'p') setPanel(!stageEl.classList.contains('panel-open'));
   else if (event.key === 'Escape') setPanel(false);
@@ -801,9 +879,12 @@ window.addEventListener('resize', resize);
 resize();
 setVoltage(220);
 setPower(false);
+setMode('AC');
+srStatus.textContent = '';
 rocker.rotation.x = rockerTarget;
+modeLever.rotation.z = modeLeverTarget;
 separateWires();
-paintMachineDisplay(0, 0, 0, false, false);
+paintMachineDisplay(solution);
 
 const clock = new THREE.Clock();
 let lastHudUpdate = 0;
@@ -813,12 +894,24 @@ function animate() {
   const elapsed = clock.elapsedTime;
   controls.update();
   rocker.rotation.x += (rockerTarget - rocker.rotation.x) * Math.min(1, dt * 18); // smooth rocker tilt
+  modeLever.rotation.z += (modeLeverTarget - modeLever.rotation.z) * Math.min(1, dt * 16); // smooth AC/DC lever
 
   // The object remains an enclosed machine; only studio lights and status LEDs move.
   frontFill.intensity = isOn ? 24 + Math.sin(elapsed * 3.4) * 1.2 : 18;
   rimLight.intensity = isOn ? 20 + Math.sin(elapsed * 2.7) * 1.4 : 13;
   const contact = hasContact();
-  const poweredContact = isOn && contact && targetVoltage > 0;
+  // Single authoritative electrical state for this frame (see electrical.ts).
+  const circuit = { mode: sourceMode, powered: isOn, setVoltage: targetVoltage, shorted: contact };
+  let sol = solveCircuit({ ...circuit, tripped });
+  const protection = advanceProtection(protectionTimer, sol, dt);
+  protectionTimer = protection.timer;
+  if (protection.trip && !tripped) {
+    tripped = true;
+    sol = solveCircuit({ ...circuit, tripped });
+    announce('Protective shutdown: short circuit held in current limit. Turn main power off and on to reset.');
+  }
+  solution = sol;
+  const poweredContact = sol.state === 'short' && targetVoltage > 0;
   if (poweredContact && (!previousContact || performance.now() - lastSparkAt > 125)) {
     const mid = exposedTipPosition(0).lerp(exposedTipPosition(1), 0.5).add(new THREE.Vector3(0, 0, 0.08));
     triggerSpark(mid);
@@ -844,43 +937,45 @@ function animate() {
     for (const child of boltGroup.children) (child as THREE.Line).visible = false;
   }
 
-  const voltage = isOn ? targetVoltage : 0;
-  // Illustrative readings only. The capped current is a display rule, not a real
-  // source impedance calculation, arc calculation, or safe-current threshold.
-  const current = poweredContact ? voltage / SOURCE_RESISTANCE : 0;
-  const power = voltage * current;
-  const frequency = isOn ? 50 : 0; // Pakistan mains frequency shown as a configurable-model default.
-
   if (elapsed - lastHudUpdate > 0.065) {
     lastHudUpdate = elapsed;
+    const voltage = sol.terminalVoltage;
     metricVoltage.textContent = voltage.toFixed(1);
-    metricCurrent.textContent = current.toFixed(2);
-    metricPower.textContent = Math.round(power).toLocaleString('en-US');
-    metricFrequency.textContent = frequency.toFixed(1);
+    metricCurrent.textContent = sol.current.toFixed(2);
+    metricPower.textContent = Math.round(sol.power).toLocaleString('en-US');
+    metricFrequency.textContent = sol.frequency.toFixed(1);
     floatingVoltage.textContent = String(Math.round(voltage)).padStart(3, '0');
+    sourceResistanceText.textContent = `${sol.sourceResistance.toFixed(1)} Ω*`;
     voltageBar.style.width = `${voltage / MAX_VOLTAGE * 100}%`;
-    currentBar.style.width = `${current / MAX_CURRENT * 100}%`;
-    powerBar.style.width = `${power / MAX_POWER * 100}%`;
-    frequencyBar.style.width = `${frequency / 50 * 100}%`;
+    currentBar.style.width = `${sol.current / CURRENT_LIMIT_A * 100}%`;
+    powerBar.style.width = `${Math.min(1, sol.power / (CURRENT_LIMIT_A ** 2 * CONTACT_RESISTANCE)) * 100}%`;
+    frequencyBar.style.width = `${sol.frequency / 50 * 100}%`;
+    const protectedOff = sol.state === 'protected';
     connectionPill.classList.toggle('connected', contact);
-    connectionPill.innerHTML = `<i></i> ${contact ? (isOn ? 'CONTACT / LIVE' : 'CONTACT / OFF') : 'OPEN CIRCUIT'}`;
-    leadAState.textContent = contact ? 'CONTACT' : isOn ? 'LIVE' : 'READY';
-    leadBState.textContent = contact ? 'CONTACT' : 'READY';
+    connectionPill.innerHTML = `<i></i> ${protectedOff ? 'PROTECTED SHUTDOWN' : contact ? (isOn ? 'SHORT CIRCUIT' : 'CONTACT / OFF') : 'OPEN CIRCUIT'}`;
+    leadAState.textContent = protectedOff ? 'TRIPPED' : contact ? (isOn ? 'SHORT' : 'CONTACT') : isOn ? 'LIVE' : 'READY';
+    leadBState.textContent = protectedOff ? 'TRIPPED' : contact ? (isOn ? 'SHORT' : 'CONTACT') : 'READY';
     leadAState.classList.toggle('hot', poweredContact); leadBState.classList.toggle('hot', poweredContact);
     arcStatus.classList.toggle('active', poweredContact);
-    arcState.textContent = poweredContact ? 'ACTIVE' : contact ? 'NO POWER' : 'IDLE';
-    if (poweredContact) {
-      $('arcStatus').querySelector('small')!.textContent = `Visual spark · ${Math.round(voltage)} V setting · illustrative current model`;
-      sceneStatusText.textContent = 'WIRE CONTACT / SPARK';
-      flowText.textContent = 'CONTACT';
+    arcState.textContent = protectedOff ? 'TRIPPED' : poweredContact ? (sol.currentLimited ? 'LIMITED' : 'ACTIVE') : contact ? 'NO POWER' : 'IDLE';
+    const arcNote = $('arcStatus').querySelector('small')!;
+    if (protectedOff) {
+      arcNote.textContent = 'Protective shutdown latched. Turn MAIN POWER off, then on, to reset.';
+      sceneStatusText.textContent = 'PROTECTED SHUTDOWN';
+      flowText.textContent = 'TRIPPED';
+      powerFlow.classList.remove('active');
+    } else if (poweredContact) {
+      arcNote.textContent = `Short circuit · ${sol.current.toFixed(1)} A ${sol.mode === 'AC' ? 'RMS' : 'DC'}${sol.currentLimited ? ` (current limit ${CURRENT_LIMIT_A} A; trips in ${TRIP_DELAY_S} s)` : ''} · spark is visual only`;
+      sceneStatusText.textContent = 'SHORT CIRCUIT / SPARK';
+      flowText.textContent = 'SHORT';
       powerFlow.classList.add('active');
     } else {
-      $('arcStatus').querySelector('small')!.textContent = contact ? 'Wire ends touch, but output is OFF.' : 'Bring both exposed cable ends together while power is ON.';
+      arcNote.textContent = contact ? 'Wire ends touch, but output is OFF.' : 'Bring both exposed cable ends together while power is ON.';
       sceneStatusText.textContent = isOn ? 'OUTPUT ENABLED' : 'MACHINE STANDBY';
       flowText.textContent = isOn ? 'READY' : 'INACTIVE';
       powerFlow.classList.toggle('active', isOn);
     }
-    paintMachineDisplay(voltage, current, frequency, isOn, poweredContact);
+    paintMachineDisplay(sol);
   }
   const pos = camera.position;
   $('coordX').textContent = pos.x.toFixed(2);
