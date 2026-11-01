@@ -4,12 +4,18 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import './style.css';
 
 import {
-  CONTACT_RESISTANCE, CURRENT_LIMIT_A, MAX_VOLTAGE, TRIP_DELAY_S, advanceProtection, solveCircuit,
-} from './electrical.ts';
-import type { SourceMode, Solution } from './electrical.ts';
+  Engine, MAX_SETPOINT_V, acInputSupplyLoad, capacitiveLoad, dcModuleLoad, dcMotorLoad, inductiveLoad, resistiveLoad, rlcLoad,
+} from './sim/index.ts';
+import type { Connection, Load, Snapshot } from './sim/index.ts';
 
-// All electrical behaviour (AC RMS / DC, open vs short circuit, current limit, protection)
-// is computed in ./electrical.ts. This file only draws the result and routes input.
+// All electrical behaviour (battery, DC-DC / inverter conversion, loads, protection, energy ledger)
+// is computed by ONE deterministic engine in ./sim/. This file only draws its Snapshot and routes input.
+// (Legacy ./electrical.ts is kept as the earlier Thevenin reference model and is no longer used here.)
+type SourceMode = 'AC' | 'DC';
+const MAX_VOLTAGE = MAX_SETPOINT_V;
+const engine = new Engine();
+const CURRENT_LIMIT_A = engine.config.converter.outCurrentLimitA;
+const TRIP_DELAY_S = engine.config.tripDelayS;
 const SPARK_REF_VOLTAGE = 220; // spark size at this setting is the original look; higher voltage grows it
 const SPARK_MAX = 192;
 
@@ -267,19 +273,30 @@ machine.add(displaySheen);
 let lastDisplayKey = '';
 // Fonts load asynchronously: repaint once they are ready so the screen never keeps fallback glyphs.
 document.fonts?.ready.then(() => { lastDisplayKey = ''; });
-function paintMachineDisplay(sol: Solution) {
-  const ac = sol.mode === 'AC';
-  const live = sol.state === 'open' || sol.state === 'short';
-  const status = sol.state === 'protected' ? 'TRIP' : sol.state === 'short' ? 'SHORT' : sol.state === 'open' ? 'RUN' : 'OFF';
-  const freqText = ac ? sol.frequency.toFixed(1) : 'DC';
+type DisplayState = 'off' | 'open' | 'short' | 'load' | 'protected';
+function displayState(s: Snapshot): DisplayState {
+  if (s.status === 'tripped') return 'protected';
+  if (s.status === 'off') return 'off';
+  return s.inputs.connection === 'short' ? 'short' : s.inputs.connection === 'load' ? 'load' : 'open';
+}
+function paintMachineDisplay(snap: Snapshot) {
+  const o = snap.output;
+  const mode = o.kind === 'ac' ? 'AC' : 'DC';
+  const state = displayState(snap);
+  const ac = o.kind === 'ac';
+  const live = state === 'open' || state === 'short' || state === 'load';
+  const status = state === 'protected' ? 'TRIP' : state === 'short' ? 'SHORT' : state === 'load' ? 'LOAD' : state === 'open' ? 'RUN' : 'OFF';
+  const freqText = ac ? o.freqHz.toFixed(1) : 'DC';
+  const peakText = o.vPeakV === null ? 'n/a' : o.vPeakV.toFixed(1);
+  const socText = `${(snap.battery.socFrac * 100).toFixed(0)}%`;
   // Only re-upload the texture when something visible actually changed.
-  const key = [sol.mode, sol.state, sol.terminalVoltage.toFixed(1), sol.current.toFixed(2), Math.round(sol.power), sol.openCircuitVoltage.toFixed(0), sol.peakVoltage.toFixed(1), freqText, sol.currentLimited].join('|');
+  const key = [mode, state, o.voltage.toFixed(1), o.currentA.toFixed(2), Math.round(o.pRealW), o.targetV.toFixed(0), peakText, freqText, o.currentLimited, socText].join('|');
   if (key === lastDisplayKey) return;
   lastDisplayKey = key;
 
   const ctx = displayContext;
   const W = DISPLAY_W, H = DISPLAY_H;
-  const accent = sol.state === 'protected' ? '#ff7a7a' : sol.state === 'short' ? '#ffa56b' : live ? '#4be1ac' : '#5b7068';
+  const accent = state === 'protected' ? '#ff7a7a' : state === 'short' ? '#ffa56b' : live ? '#4be1ac' : '#5b7068';
   const bright = live ? '#c4ffec' : '#4d6a5f';
   const soft = live ? '#8fe6c6' : '#4d6a5f';
   const label = '#68a592';
@@ -295,16 +312,17 @@ function paintMachineDisplay(sol: Solution) {
   // Header bar: source mode + status chip.
   ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fillRect(0, 0, W, 42);
   ctx.textBaseline = 'middle';
-  ctx.fillStyle = label; ctx.font = `500 18px ${MONO}`; ctx.fillText(`${sol.mode} OUTPUT  ·  V-415  ·  SIM`, 24, 22);
+  ctx.fillStyle = label; ctx.font = `500 18px ${MONO}`; ctx.fillText(`${mode} OUTPUT  ·  V-415  ·  SIM`, 24, 22);
+  ctx.textAlign = 'right'; ctx.fillText(`BAT ${socText}`, 556, 22); ctx.textAlign = 'left';
   ctx.beginPath(); ctx.roundRect(574, 9, 122, 25, 12.5);
-  ctx.fillStyle = sol.state === 'off' ? 'rgba(255,255,255,0.05)' : `${accent}26`; ctx.fill();
+  ctx.fillStyle = state === 'off' ? 'rgba(255,255,255,0.05)' : `${accent}26`; ctx.fill();
   ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.stroke();
   ctx.fillStyle = accent; ctx.beginPath(); ctx.arc(592, 21.5, 4.5, 0, Math.PI * 2); ctx.fill();
   ctx.font = `500 16px ${MONO}`; ctx.textAlign = 'center'; ctx.fillText(status, 647, 22); ctx.textAlign = 'left';
 
   // Main voltage read-out: RMS for AC, steady value for DC.
   ctx.textBaseline = 'alphabetic';
-  const vText = sol.terminalVoltage.toFixed(1);
+  const vText = o.voltage.toFixed(1);
   ctx.fillStyle = bright; ctx.font = `500 78px ${MONO}`; ctx.fillText(vText, 24, 114);
   const vw = ctx.measureText(vText).width;
   ctx.fillStyle = soft; ctx.font = `500 32px ${MONO}`; ctx.fillText('V', 24 + vw + 8, 114);
@@ -313,9 +331,9 @@ function paintMachineDisplay(sol: Solution) {
   // Set-point bar (open-circuit voltage) with ticks, plus peak value (AC) or polarity (DC).
   const bx = 430, bw = 266;
   ctx.fillStyle = label; ctx.font = `500 14px ${MONO}`; ctx.fillText('SET', bx, 72);
-  ctx.textAlign = 'right'; ctx.fillText(ac ? `PEAK ${sol.peakVoltage.toFixed(1)} V` : 'A: +   B: −', bx + bw, 72); ctx.textAlign = 'left';
+  ctx.textAlign = 'right'; ctx.fillText(ac ? `PEAK ${peakText} V` : 'A: +   B: −', bx + bw, 72); ctx.textAlign = 'left';
   ctx.fillStyle = 'rgba(255,255,255,0.09)'; ctx.beginPath(); ctx.roundRect(bx, 84, bw, 10, 5); ctx.fill();
-  const frac = Math.max(0, Math.min(1, sol.openCircuitVoltage / MAX_VOLTAGE));
+  const frac = Math.max(0, Math.min(1, o.targetV / MAX_VOLTAGE));
   if (frac > 0.005) {
     const fill = ctx.createLinearGradient(bx, 0, bx + bw, 0);
     fill.addColorStop(0, '#2fa77f'); fill.addColorStop(1, accent);
@@ -331,9 +349,9 @@ function paintMachineDisplay(sol: Solution) {
   // Secondary read-outs. DC has no frequency, so it shows "DC" instead of a number.
   ctx.fillStyle = 'rgba(120,200,170,0.16)'; ctx.fillRect(24, 130, W - 48, 1);
   const cells: Array<[string, string, string]> = [
-    [sol.currentLimited ? 'CURRENT · LIMIT' : 'CURRENT', sol.current.toFixed(2), 'A'],
+    [o.currentLimited ? 'CURRENT · LIMIT' : 'CURRENT', o.currentA.toFixed(2), 'A'],
     ['FREQUENCY', freqText, ac ? 'Hz' : ''],
-    ['POWER', Math.round(sol.power).toLocaleString('en-US'), 'W'],
+    ['POWER', Math.round(o.pRealW).toLocaleString('en-US'), 'W'],
   ];
   cells.forEach(([name, value, unit], i) => {
     const x = 24 + i * 232;
@@ -628,9 +646,18 @@ function triggerSpark(center: THREE.Vector3) {
 // -----------------------------------------------------------------------------
 let isOn = false;
 let sourceMode: SourceMode = 'AC';
-let tripped = false; // protection latch, cleared by cycling main power
-let protectionTimer = 0;
-let solution: Solution = solveCircuit({ mode: 'AC', powered: false, setVoltage: 220, shorted: false, tripped: false });
+let snap: Snapshot = engine.snapshot(); // single authoritative electrical state (see ./sim/engine.ts)
+const OPEN_CONNECTION: Connection = { kind: 'open' };
+const SHORT_CONNECTION: Connection = { kind: 'short' };
+let attachedLoad: Connection | null = null; // optional engine-level load (see window.voltaLab)
+let lastSyncKey = '';
+function syncEngineInputs(contact: boolean) {
+  const connection = contact ? SHORT_CONNECTION : attachedLoad ?? OPEN_CONNECTION;
+  const key = `${isOn}|${sourceMode}|${targetVoltage}|${contact ? 's' : attachedLoad ? 'l' : 'o'}`;
+  if (key === lastSyncKey && engine.getInputs().connection === connection) return;
+  lastSyncKey = key;
+  engine.setInputs({ powerOn: isOn, mode: sourceMode === 'AC' ? 'ac' : 'dc', setpointV: targetVoltage, connection });
+}
 let targetVoltage = 220;
 let previousContact = false;
 let activeTip = -1;
@@ -679,7 +706,9 @@ const frequencyBar = $('frequencyBar') as HTMLElement;
 const voltageUnit = $('voltageUnit');
 const metricVoltageUnit = $('metricVoltageUnit');
 const floatingUnit = $('floatingUnit');
-const sourceResistanceText = $('sourceResistance');
+const batteryText = $('batteryState');
+const convInputText = $('convInput');
+const convEffText = $('convEff');
 const srStatus = $('srStatus');
 
 function updateRangePaint() {
@@ -712,7 +741,6 @@ function setMode(mode: SourceMode) {
 }
 function setPower(value: boolean) {
   isOn = value;
-  tripped = false; protectionTimer = 0; // cycling main power clears a protective shutdown
   powerBtn.setAttribute('aria-checked', String(isOn));
   powerBtn.classList.toggle('is-on', isOn);
   powerDescription.textContent = isOn ? 'Output stage is running' : 'Output stage is disabled';
@@ -884,7 +912,9 @@ srStatus.textContent = '';
 rocker.rotation.x = rockerTarget;
 modeLever.rotation.z = modeLeverTarget;
 separateWires();
-paintMachineDisplay(solution);
+syncEngineInputs(hasContact());
+snap = engine.snapshot();
+paintMachineDisplay(snap);
 
 const clock = new THREE.Clock();
 let lastHudUpdate = 0;
@@ -900,18 +930,17 @@ function animate() {
   frontFill.intensity = isOn ? 24 + Math.sin(elapsed * 3.4) * 1.2 : 18;
   rimLight.intensity = isOn ? 20 + Math.sin(elapsed * 2.7) * 1.4 : 13;
   const contact = hasContact();
-  // Single authoritative electrical state for this frame (see electrical.ts).
-  const circuit = { mode: sourceMode, powered: isOn, setVoltage: targetVoltage, shorted: contact };
-  let sol = solveCircuit({ ...circuit, tripped });
-  const protection = advanceProtection(protectionTimer, sol, dt);
-  protectionTimer = protection.timer;
-  if (protection.trip && !tripped) {
-    tripped = true;
-    sol = solveCircuit({ ...circuit, tripped });
-    announce('Protective shutdown: short circuit held in current limit. Turn main power off and on to reset.');
+  // Single authoritative electrical state: inputs go in, the deterministic engine advances in fixed
+  // steps (decoupled from this render loop), and everything below only reads the Snapshot.
+  const prevTrip = snap.protection.trip;
+  syncEngineInputs(contact);
+  engine.advance(dt);
+  snap = engine.snapshot();
+  if (snap.protection.trip && snap.protection.trip !== prevTrip) {
+    announce(`Protective shutdown: ${snap.protection.message} Turn main power off and on to reset.`);
   }
-  solution = sol;
-  const poweredContact = sol.state === 'short' && targetVoltage > 0;
+  const dState = displayState(snap);
+  const poweredContact = dState === 'short' && snap.output.currentA > 0;
   if (poweredContact && (!previousContact || performance.now() - lastSparkAt > 125)) {
     const mid = exposedTipPosition(0).lerp(exposedTipPosition(1), 0.5).add(new THREE.Vector3(0, 0, 0.08));
     triggerSpark(mid);
@@ -939,33 +968,38 @@ function animate() {
 
   if (elapsed - lastHudUpdate > 0.065) {
     lastHudUpdate = elapsed;
-    const voltage = sol.terminalVoltage;
+    const o = snap.output;
+    const voltage = o.voltage;
     metricVoltage.textContent = voltage.toFixed(1);
-    metricCurrent.textContent = sol.current.toFixed(2);
-    metricPower.textContent = Math.round(sol.power).toLocaleString('en-US');
-    metricFrequency.textContent = sol.frequency.toFixed(1);
+    metricCurrent.textContent = o.currentA.toFixed(2);
+    metricPower.textContent = Math.round(o.pRealW).toLocaleString('en-US');
+    metricFrequency.textContent = o.freqHz.toFixed(1);
     floatingVoltage.textContent = String(Math.round(voltage)).padStart(3, '0');
-    sourceResistanceText.textContent = `${sol.sourceResistance.toFixed(1)} Ω*`;
+    batteryText.textContent = `${(snap.battery.socFrac * 100).toFixed(1)} % · ${snap.battery.remainingWh.toFixed(0)} Wh`;
+    const cv = snap.converter;
+    convInputText.textContent = cv.vInV > 0 ? `${cv.iInA.toFixed(2)} A @ ${cv.vInV.toFixed(0)} V` : 'n/a';
+    convEffText.textContent = cv.efficiency === null ? 'n/a' : `${(cv.efficiency * 100).toFixed(1)} % · ${cv.lossW.toFixed(1)} W loss`;
     voltageBar.style.width = `${voltage / MAX_VOLTAGE * 100}%`;
-    currentBar.style.width = `${sol.current / CURRENT_LIMIT_A * 100}%`;
-    powerBar.style.width = `${Math.min(1, sol.power / (CURRENT_LIMIT_A ** 2 * CONTACT_RESISTANCE)) * 100}%`;
-    frequencyBar.style.width = `${sol.frequency / 50 * 100}%`;
-    const protectedOff = sol.state === 'protected';
-    connectionPill.classList.toggle('connected', contact);
-    connectionPill.innerHTML = `<i></i> ${protectedOff ? 'PROTECTED SHUTDOWN' : contact ? (isOn ? 'SHORT CIRCUIT' : 'CONTACT / OFF') : 'OPEN CIRCUIT'}`;
+    currentBar.style.width = `${Math.min(1, o.currentA / CURRENT_LIMIT_A) * 100}%`;
+    powerBar.style.width = `${Math.min(1, o.pRealW / (MAX_VOLTAGE * CURRENT_LIMIT_A)) * 100}%`;
+    frequencyBar.style.width = `${o.freqHz / 50 * 100}%`;
+    const protectedOff = dState === 'protected';
+    const loadOn = dState === 'load';
+    connectionPill.classList.toggle('connected', contact || loadOn);
+    connectionPill.innerHTML = `<i></i> ${protectedOff ? 'PROTECTED SHUTDOWN' : contact ? (isOn ? 'SHORT CIRCUIT' : 'CONTACT / OFF') : attachedLoad ? 'LOAD CONNECTED' : 'OPEN CIRCUIT'}`;
     leadAState.textContent = protectedOff ? 'TRIPPED' : contact ? (isOn ? 'SHORT' : 'CONTACT') : isOn ? 'LIVE' : 'READY';
     leadBState.textContent = protectedOff ? 'TRIPPED' : contact ? (isOn ? 'SHORT' : 'CONTACT') : 'READY';
     leadAState.classList.toggle('hot', poweredContact); leadBState.classList.toggle('hot', poweredContact);
     arcStatus.classList.toggle('active', poweredContact);
-    arcState.textContent = protectedOff ? 'TRIPPED' : poweredContact ? (sol.currentLimited ? 'LIMITED' : 'ACTIVE') : contact ? 'NO POWER' : 'IDLE';
+    arcState.textContent = protectedOff ? 'TRIPPED' : poweredContact ? (o.currentLimited ? 'LIMITED' : 'ACTIVE') : contact ? 'NO POWER' : 'IDLE';
     const arcNote = $('arcStatus').querySelector('small')!;
     if (protectedOff) {
-      arcNote.textContent = 'Protective shutdown latched. Turn MAIN POWER off, then on, to reset.';
+      arcNote.textContent = `${snap.protection.message ?? 'Protective shutdown latched.'} Turn MAIN POWER off, then on, to reset.`;
       sceneStatusText.textContent = 'PROTECTED SHUTDOWN';
       flowText.textContent = 'TRIPPED';
       powerFlow.classList.remove('active');
     } else if (poweredContact) {
-      arcNote.textContent = `Short circuit · ${sol.current.toFixed(1)} A ${sol.mode === 'AC' ? 'RMS' : 'DC'}${sol.currentLimited ? ` (current limit ${CURRENT_LIMIT_A} A; trips in ${TRIP_DELAY_S} s)` : ''} · spark is visual only`;
+      arcNote.textContent = `Short circuit · ${o.currentA.toFixed(1)} A ${o.kind === 'ac' ? 'RMS' : 'DC'}${o.currentLimited ? ` (current limit ${CURRENT_LIMIT_A} A; trips in ${TRIP_DELAY_S} s)` : ''} · spark is visual only`;
       sceneStatusText.textContent = 'SHORT CIRCUIT / SPARK';
       flowText.textContent = 'SHORT';
       powerFlow.classList.add('active');
@@ -975,7 +1009,7 @@ function animate() {
       flowText.textContent = isOn ? 'READY' : 'INACTIVE';
       powerFlow.classList.toggle('active', isOn);
     }
-    paintMachineDisplay(sol);
+    paintMachineDisplay(snap);
   }
   const pos = camera.position;
   $('coordX').textContent = pos.x.toFixed(2);
@@ -984,3 +1018,20 @@ function animate() {
   renderer.render(scene, camera);
 }
 animate();
+
+// Engine-level load API (no new UI): lets a later application layer attach a load with an explicit
+// electrical specification. Example fixtures are illustrative, not real products.
+interface VoltaLabApi {
+  engine: Engine;
+  snapshot: () => Snapshot;
+  attachLoad: (load: Load, reversed?: boolean) => void;
+  detachLoad: () => void;
+  loads: { resistiveLoad: typeof resistiveLoad; inductiveLoad: typeof inductiveLoad; capacitiveLoad: typeof capacitiveLoad; rlcLoad: typeof rlcLoad; acInputSupplyLoad: typeof acInputSupplyLoad; dcMotorLoad: typeof dcMotorLoad; dcModuleLoad: typeof dcModuleLoad };
+}
+(window as unknown as { voltaLab: VoltaLabApi }).voltaLab = {
+  engine,
+  snapshot: () => engine.snapshot(),
+  attachLoad: (load, reversed = false) => { attachedLoad = { kind: 'load', load, reversed }; lastSyncKey = ''; },
+  detachLoad: () => { attachedLoad = null; lastSyncKey = ''; },
+  loads: { resistiveLoad, inductiveLoad, capacitiveLoad, rlcLoad, acInputSupplyLoad, dcMotorLoad, dcModuleLoad },
+};

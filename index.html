@@ -63,8 +63,9 @@
               <div class="metric"><span>OUTPUT POWER</span><div><strong id="metricPower">0</strong><small>W</small></div><div class="metric-track"><i id="powerBar"></i></div></div>
               <div class="metric"><span>FREQUENCY</span><div><strong id="metricFrequency">0.0</strong><small>Hz</small></div><div class="metric-track"><i id="frequencyBar"></i></div></div>
             </div>
-            <div class="telemetry-foot"><span>MODEL UPDATE <b id="updateRate">60 Hz</b></span><span>SOURCE RESISTANCE <b id="sourceResistance">2.2 Ω*</b></span></div>
-            <p class="model-footnote">*Simulated Thevenin source with a 10 A current limit and a protective shutdown after a sustained short. The spark is visual only. This is not a model of real fault currents, arc energy or safe touch distances.</p>
+            <div class="telemetry-foot"><span>PHYSICS STEP <b id="updateRate">50 Hz fixed</b></span><span>BATTERY <b id="batteryState">—</b></span></div>
+            <div class="telemetry-foot"><span>BATTERY IN <b id="convInput">n/a</b></span><span>CONVERSION <b id="convEff">n/a</b></span></div>
+            <p class="model-footnote">Simulated lithium-ion pack (equivalent-circuit model) feeding a DC-DC stage and, in AC mode, an inverter, with a 10 A output current limit and a trip after a sustained short. Limits, resistances and the pack are model assumptions, not measured data. The spark is visual only. This is not a model of real fault currents, arc energy or safe touch distances.</p>
           </section>
 
           <section class="safety-card"><span class="safety-icon">!</span><div><strong>SIMULATION ONLY · MAINS VOLTAGE CAN KILL</strong><p>This is a visual software model. Never reproduce wire-touching or sparking experiments with a real power supply. Real arc and shock hazards depend on source impedance, contact geometry, insulation, environment and exposure.</p></div></section>

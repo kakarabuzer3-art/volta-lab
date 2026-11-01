@@ -1,12 +1,13 @@
 # Build / QA status
 
-Last verified 2026-10-30 (AC/DC selector + electrical model).
+Last verified 2026-11-01 (physics engine `src/sim/` integrated into the machine).
 
 | Check | Result |
 |---|---|
-| `npm test` (12 electrical-model tests) | PASS |
-| `tsc --noEmit` (strict) against `three` r186.1 + `@types/three` 0.186 | PASS |
-| Production bundle (bun, same `three` r186.1) | PASS |
-| Real-browser run (Chromium, software WebGL): 3D AC/DC selector, rocker, open/short circuit, current limit, protection trip and reset, M / T / S / X / Space keys, 0–415 V range | PASS (24/24) |
-| `npm run build` with Vite (`vite build`) | NOT RUN: the npm registry is blocked in the authoring sandbox, so Vite could not be installed. Run `npm install && npm run build` locally. |
+| `npm test`: `node --test "src/**/*.test.ts"` (12 legacy + 43 engine tests = 55) | PASS (55/55) |
+| `tsc --noEmit` (strict) against `three` r186 sources + `@types/three` 0.187 typings | PASS |
+| Production bundle (bun, `three` r186 sources) | PASS |
+| Real-browser run (Chromium, software WebGL, bundled app): 26 checks: engine exposure, HUD = snapshot, AC/DC switch, 415 V, DC load current, SOC decrease, energy-ledger residual, short-circuit limit + trip + reset, power OFF, 12 V → 415 V cases | PASS (26/26; one blocked external font request ignored) |
+| `npm run build` with Vite (`vite build`) | NOT RUN: npm registry blocked in the authoring sandbox. Run `npm install && npm run build` locally. |
+| Vercel deployment of the pushed commit | see the commit status on GitHub (not verifiable from the sandbox) |
 | Real GPU / Windows / Safari / mobile touch | NOT RUN |
