@@ -16,6 +16,8 @@
 // Does not model diode reverse recovery, source inductance, or harmonic voltage distortion.
 // -----------------------------------------------------------------------------
 
+import { validateRectifierSpec } from './validate.ts';
+
 export interface RectifierSpec {
   /** Forward drop per diode (V). */
   vfV: number;
@@ -87,6 +89,7 @@ export interface RectifierLoad { iOfV(v: number): number }
  * (signed; the bridge makes either polarity produce the same output polarity).
  */
 export function stepRectifier(spec: RectifierSpec, st: RectifierState, vacRms: number, freqHz: number, load: RectifierLoad, dtS: number): RectifierState {
+  validateRectifierSpec(spec);
   if (!(dtS > 0)) return st;
   const period = freqHz > 0 ? 1 / freqHz : 0.02;
   const n = Math.max(1, Math.ceil(dtS / (period / 400)));

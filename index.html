@@ -44,7 +44,7 @@
             <input id="voltageSlider" class="range range-voltage" type="range" min="0" max="415" value="220" step="1" aria-label="Output voltage setting" />
             <div class="range-labels"><span>0 V</span><span>208 V</span><span>415 V</span></div>
             <div class="voltage-presets"><button data-voltage="110">110 V</button><button data-voltage="220" class="preset-active">220 V</button><button data-voltage="400">400 V</button><button data-voltage="415">415 V</button></div>
-            <div class="micro-note"><span class="note-icon">↗</span><span>Voltage control changes the simulator’s target output; it is not a real AVR or hardware control.</span></div>
+            <div class="micro-note"><span class="note-icon">↗</span><span>Voltage control changes the simulator’s target output; it is not a real AVR or hardware control. AC is single-phase, two-wire: the RMS value is measured between Lead A and Lead B (not a three-phase line-to-line voltage).</span></div>
           </section>
 
           <section class="control-card cable-card">

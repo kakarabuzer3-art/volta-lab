@@ -58,28 +58,93 @@ Switching AC/DC, moving the dial or touching cables cannot create energy: only t
   decided from the load's own ratings (input type, voltage window, absolute max, frequency, polarity,
   current, power, temperature). Unspecified ratings (`null`) are never invented. Each state carries a reason.
 
-### Parameter provenance
-| Parameter | Source class |
-|---|---|
-| OCV(SOC) curve shapes, cutoff / max-charge voltage per cell, coulombic efficiency, specific energy, heat capacity | **literature-typical** (representative of published ranges; **not** a specific cell datasheet) |
-| R0, R1/R0, τ1, SOC/T factors, C-rate limits, max temperature, thermal coupling | **model assumption** (calibrate against a datasheet before quantitative use) |
-| Default machine pack (100S2P, 5 Ah NMC cells, ≈ 3.7 kWh) | **model assumption**, sized only so 0–415 V is reachable |
-| Converter / inverter loss coefficients, Dmax, f_sw, L, C, current limits, turns ratio | **model assumption** |
-| 10 A output limit, 2 s trip delay, 0.05 Ω contact resistance, 50 Hz | **model assumption** (50 Hz is the existing default; other frequencies are supported) |
-| Example loads (`resistiveLoad(…)` etc.) | **illustrative fixtures**, not real products |
+### Parameter provenance (what each kind of number really is)
+Classes: **Law** = established physical law · **Lit** = literature-typical value (representative range, not one product) ·
+**Approx** = engineering approximation · **Assumed** = model assumption chosen by the author · **Datasheet** = manufacturer value ·
+**Measured** = actually measured and calibrated. *No parameter in this project is currently Datasheet or Measured.*
 
-### Mandatory example: 12 V battery → 415 V DC
-With the default single-stage, non-isolated boost the engine reports a truthful **duty-limit**: the output
-collapses to ≈ Vin/(1−Dmax)·η (≈ 126 V into 100 W-rated resistor in the browser run) instead of showing 415 V.
-With an isolated boost-derived stage (turns ratio, a stated assumption) 415 V / 100 W needs ≈ 8.8 A from the
-battery at ≈ 12.5 V (terminal sagging below the 12.7 V OCV), η ≈ 91 %, and the SOC and stored energy fall accordingly.
+| Parameter | Class |
+|---|---|
+| Vpk = √2·Vrms, Z, XL, XC, P = V·I·cosφ, Coulomb counting, series/parallel rules, Cth·dT/dt = P − ΔT/Rth | Law |
+| 1-RC (Thevenin) battery structure, averaged converter / inverter models, CCM duty formulas, piece-wise diode | Approx |
+| OCV(SOC) curve shapes, cutoff and max-charge volts per cell, coulombic efficiency, specific energy, heat capacity | Lit |
+| R0, R1/R0, τ1, SOC and temperature factors on R0, C-rate limits, max temperature, pack thermal coupling | Assumed |
+| Default machine pack (100S2P, 5 Ah NMC cells) | Assumed (illustrative; not a commercial product) |
+| Converter / inverter loss coefficients, Dmax = 0.9, f_sw, L, C, 10 A limit, 105 °C shutdown / 85 °C restart, turns ratio | Assumed |
+| 10 A output limit, 2 s trip delay, 0.05 Ω contact resistance | Assumed |
+| 50 Hz output frequency | Assumed default (other frequencies are supported by the equations) |
+| Example loads `resistiveLoad(…)`, `acInputSupplyLoad(…)` … and their ratings / thermal values | Assumed (illustrative fixtures; **not real products**) |
+
+### The two battery configurations — do not confuse them
+| | **Default machine battery** | **12 V engineering test profile** |
+|---|---|---|
+| Where | `defaultConfig()` — what the app runs | only inside tests / the optional browser check |
+| Cells | NMC lithium-ion, **100 in series × 2 parallel**, 5 Ah per cell | lead-acid, **6 in series × 2 parallel**, 7 Ah per cell |
+| Pack | 10 Ah, ≈ 372.6 V nominal, ≈ 3.73 kWh nominal (calculated from the model), full-charge OCV 415 V | 14 Ah, ≈ 12.6 V at 90 % SOC |
+| Initial SOC | 90 % (≈ 3.32 kWh remaining, OCV ≈ 405 V) | 90 % |
+| Converter | single-stage non-isolated buck/boost (turns ratio 1) | isolated boost-derived stage with an **assumed** turns ratio of 4 (not a hardware specification) |
+| Purpose | reach the machine's 0–415 V range | show what a 12 V source must do to give 415 V |
+
+The 12 V profile is **not** the machine battery. With it, 415 V / 100 W (R = 1722.25 Ω) gives (from the engine, 20 ms steps):
+Iout = 0.241 A, Iin = 8.99 A, battery terminal 12.25 V (OCV 12.60 V → 0.35 V sag), duty D = 0.886, η = 90.9 %, converter loss 10.0 W,
+and after 600 s the SOC falls 90.0 % → 79.1 % (remaining 153.3 → 134.1 Wh; 16.67 Wh went to the load, the rest to losses).
+With turns ratio 1 (single-stage boost) the same request is a truthful **duty-limit**: the output collapses instead of showing 415 V.
+
+### What “415 V AC” means here
+The machine has two output conductors (Lead A red, Lead B black), so AC is **single-phase, two-wire**. The set-point is the **RMS voltage
+between the two leads**; at 415 V the peak is √2 × 415 = 586.9 V and the default frequency is 50 Hz. It is **not** a three-phase
+line-to-line voltage and not a statement about household supply (IEC 60038 lists e.g. 230 V and 230/400 V). The 0–415 V range is kept as built.
+
+### Architecture (what the AC/DC selector does and does not do)
+* DC mode: battery → DC-DC stage → DC output. AC mode: battery → DC-DC stage → DC link → H-bridge inverter → AC output.
+* The selector chooses the **output architecture**. It is not itself a rectifier and does not convert anything; the DC-DC stage and
+  inverter (with their losses) do. Switching mode re-solves the circuit and clears mode-specific timers; no state is carried over.
+* The bridge **rectifier** model lives inside the **AC-input-supply load** (a device that rectifies the AC it receives). There is no
+  separate rectifier stage in the machine.
+
+### Converter thermal shutdown boundary
+The converter is enabled for a whole 20 ms step or not at all. Within a step the battery, converter and load run in the state at the **start**
+of the step, and that interval’s energy is real and booked. Temperature is advanced at the **end** of the step; if it reaches the shutdown
+temperature, the snapshot of that same step is already the **disabled** state (0 V, 0 A, 0 W, no battery current, message “thermal shutdown”)
+and no further battery energy is consumed. The converter cools exponentially, restarts only when T ≤ restart temperature (hysteresis),
+and the restart snapshot is already energised. Tests: `src/sim/thermal-shutdown.test.ts`.
+(Before this fix the snapshot of the shutdown step still showed the old energised readings for one step.)
+
+### Input validation
+Every public entry point (battery pack, chemistry, converter, inverter, rectifier, loads, engine config, `setInputs`, `attachLoad`) rejects invalid
+numbers with a `RangeError` naming the parameter: NaN / ±Infinity, efficiencies outside 0 < η ≤ 1, duty limit outside 0 < Dmax < 1, non-positive
+R/L/C/thermal values, non-integer cell counts, SOC outside 0–1, inverted rating intervals, restart temperature not above ambient / below shutdown.
+`null` means “unspecified” in load ratings and is accepted. Finite set-points outside 0–415 V are clamped; NaN is rejected (it is never turned into 0 V).
+Tests: `src/sim/validation.test.ts`.
+
+### Energy ledger: sign conventions and tolerances
+Discharge is positive. Per step (exact, floating-point): `chemical = terminal + R0 loss + R1 loss + ΔE(C1)`; and
+`terminal = output + converter/inverter loss`. Residual tolerances in the tests: battery identity 1e-9 Wh; terminal identity 1e-6 relative.
+Output energy is also compared with independent analytic values (V²/R·t, V²R/(R²+X²)·t, a 10 A limit into 5 Ω = 500 W …). Reactive power (Q) is not energy
+consumed, so only real power enters the ledger. The rectifier’s backward-Euler step dissipates a small amount numerically; it is measured
+separately (< 1 % of input) and shrinks with the step. The averaged converter has **no** inductor / output-capacitor energy state: that
+neglected storage is at most ≈ 41 J + 0.011 J (≈ 0.011 Wh), once, when the set-point changes (quantified in `ledger.test.ts`).
+When the battery runs out inside a step, only the charge that was left is delivered (output and ledger are scaled by the active fraction).
+
+### Beginner glossary
+* **RMS voltage** — the steady DC-equivalent heating value of AC. **Peak** is the top of the wave (√2 × RMS).
+* **Current (A)** — flow of charge; **power (W)** = V × I (AC real power also × power factor).
+* **SOC** — how full the battery is (0–100 %); **remaining energy (Wh)** — stored energy still available.
+* **Efficiency / conversion loss** — a converter gives out less than it takes in; the difference is heat.
+* **Thermal shutdown** — the converter switches off when its temperature reaches its limit and restarts after cooling.
+* **Simulated device damage** — a modelled consequence of exceeding a *rating* of the attached load; the HUD note says which one.
+* **Model assumption vs hardware data** — see the provenance table; none of the numbers are measured hardware data.
+
+### What is *not* real
+The browser cannot produce electricity or power a real device. There is no hardware measurement, no charging path and no physical output;
+all values come from the equations above.
 
 ### Limitations (engine)
 * Equivalent-circuit battery, **not** an electrochemical model: no ageing / capacity fade, no Peukert effect,
   no hysteresis, no self-discharge, no CC-CV charger, identical cells with no balancing.
 * Converters and inverter are **averaged** models: individual switching events, dead time, harmonics and
   EMI are not resolved. CCM is assumed.
-* The rectifier / AC-input supply is cycle-resolved only for the rectifier itself, not the downstream regulator.
+* The AC-input supply load is cycle-resolved only in its rectifier / bulk capacitor; the regulator behind it is a constant-power block.
 * Load thermal limits and failure modes (open circuit after damage) are simplifications; there is no explosion,
   arc-energy or human-shock model. The spark is visual only.
 * The main machine is battery-powered; there is no mains input, charging path or regeneration in the UI.

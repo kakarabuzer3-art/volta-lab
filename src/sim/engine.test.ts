@@ -10,6 +10,7 @@ import { storedEnergyWh } from './battery.ts';
 const near = (a: number, b: number, tol: number, msg?: string): void => assert.ok(Math.abs(a - b) <= tol, `${msg ?? ''} expected ${b} ± ${tol}, got ${a}`);
 const run = (e: Engine, seconds: number): void => { for (let k = 0; k < Math.round(seconds / STEP_S); k++) e.step(); };
 
+/** ENGINEERING TEST PROFILE ONLY (6S2P lead-acid, 7 Ah cells, ASSUMED isolated-stage turns ratio). The default machine battery is 100S2P NMC. */
 function lead12Config(turns: number): EngineConfig {
   const converter = { ...MACHINE_CONVERTER, turnsRatio: turns };
   return { ...defaultConfig(), pack: { cell: { chemistry: 'lead-acid', capacityAh: 7 }, seriesCells: 6, parallelStrings: 2 }, converter, inverter: machineInverter(converter), initialSoc: 0.9 };
@@ -164,7 +165,7 @@ test('35. AC/DC switching leaves no stale state', () => {
   assert.equal(e2.snapshot().battery.socFrac, soc);
 });
 
-test('mandatory example (engine): 12 V lead-acid battery → 415 V DC', () => {
+test('mandatory example (engine) [12 V ENGINEERING TEST PROFILE, not the machine battery]: 12 V lead-acid pack → 415 V DC', () => {
   const e = new Engine(lead12Config(4));
   e.setInputs({ powerOn: true, mode: 'dc', setpointV: 415 });
   e.attachLoad(resistiveLoad(415 ** 2 / 100)); // 100 W at 415 V
@@ -249,13 +250,14 @@ test('energy conservation across the whole chain (source → conversion → load
 
 test('37. no NaN / Infinity / division by zero across extreme inputs', () => {
   const loads = [null, resistiveLoad(1e-6), resistiveLoad(1e9), inductiveLoad(0.001, 1e-9), acInputSupplyLoad({ pOutW: 1e5, efficiency: 0.5, busCapF: 1e-9 }), dcModuleLoad({ vForwardV: 0, rDynOhm: 1e-6 })];
-  const setpoints = [0, 1e-9, 0.5, 12, 230, 415, 500, -5, NaN, Infinity];
+  const setpoints = [0, 1e-9, 0.5, 12, 230, 415, 500, -5]; // finite out-of-range values are clamped; NaN/Infinity are REJECTED (see validation.test.ts)
   for (const mode of ['ac', 'dc'] as const) for (const sp of setpoints) for (const load of loads) for (const reversed of [false, true]) {
     const e = new Engine();
     e.setInputs({ powerOn: true, mode, setpointV: sp });
     if (load) e.attachLoad(load, reversed); else e.setInputs({ connection: { kind: 'short' } });
     for (let k = 0; k < 8; k++) { e.step(); assertFinite(e.snapshot(), `${mode}/${sp}/${load?.label}`); }
   }
+  for (const bad of [NaN, Infinity, -Infinity]) assert.throws(() => new Engine().setInputs({ setpointV: bad }), /setpointV must be a finite number/);
   assert.equal(new Engine().advance(NaN), 0);
   assert.equal(new Engine().advance(-1), 0);
 });

@@ -80,7 +80,9 @@ test('21b. rectifier energy ledger closes: input = losses + load + ΔE_C + numer
   assert.ok(dcPos.vcV > 40 && dcPos.vcV < 48 - 1.4 + 1e-6);
 });
 
+/** ENGINEERING TEST PROFILE ONLY: 6S2P lead-acid, 7 Ah cells (≈ 12 V, 14 Ah). NOT the default machine battery (100S2P NMC). */
 const lead12 = () => packModel({ cell: { chemistry: 'lead-acid', capacityAh: 7 }, seriesCells: 6, parallelStrings: 2 });
+/** Isolated boost-derived stage with an ASSUMED turns ratio of 4: a model assumption, not a hardware specification. */
 const isolated: DcDcSpec = { ...MACHINE_CONVERTER, turnsRatio: 4 };
 
 test('22. DC→AC inverter power balance: Pout ≤ η·Pin, losses ≥ 0, input current from the source', () => {
@@ -108,7 +110,7 @@ test('22. DC→AC inverter power balance: Pout ≤ η·Pin, losses ≥ 0, input 
   assert.ok(r.pOutW <= r.pInW);
 });
 
-test('23/24. 12 V battery → 415 V DC boost: power balance and required input current (mandatory example)', () => {
+test('23/24. [12 V ENGINEERING TEST PROFILE, not the machine battery] 12 V lead-acid pack → 415 V DC boost: power balance and required input current', () => {
   const p = lead12();
   const st = createBatteryState(0.9);
   const E = p.ocv(st.soc, st.tempC), R0 = p.r0(st.soc, st.tempC);

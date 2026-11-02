@@ -4,7 +4,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import './style.css';
 
 import {
-  Engine, MAX_SETPOINT_V, acInputSupplyLoad, capacitiveLoad, dcModuleLoad, dcMotorLoad, inductiveLoad, resistiveLoad, rlcLoad,
+  Engine, MAX_SETPOINT_V, validateLoad, acInputSupplyLoad, capacitiveLoad, dcModuleLoad, dcMotorLoad, inductiveLoad, resistiveLoad, rlcLoad,
 } from './sim/index.ts';
 import type { Connection, Load, Snapshot } from './sim/index.ts';
 
@@ -737,7 +737,7 @@ function setMode(mode: SourceMode) {
   metricVoltageUnit.textContent = mode === 'AC' ? 'V RMS' : 'V DC';
   floatingUnit.textContent = mode === 'AC' ? 'V RMS' : 'V DC';
   canvas.dataset.sourceMode = mode;
-  announce(mode === 'AC' ? 'Source mode AC, 50 hertz, voltage shown as RMS.' : 'Source mode DC, steady voltage, frequency 0 hertz.');
+  announce(mode === 'AC' ? 'Source mode AC, single-phase two-wire, 50 hertz, voltage shown as RMS between the two leads.' : 'Source mode DC, steady voltage, frequency 0 hertz.');
 }
 function setPower(value: boolean) {
   isOn = value;
@@ -1004,7 +1004,11 @@ function animate() {
       flowText.textContent = 'SHORT';
       powerFlow.classList.add('active');
     } else {
-      arcNote.textContent = contact ? 'Wire ends touch, but output is OFF.' : 'Bring both exposed cable ends together while power is ON.';
+      const lh = snap.load?.health;
+      // Causal feedback for an attached load (state + which rating was exceeded); otherwise the usual hint.
+      arcNote.textContent = lh && lh.state !== 'normal' && lh.reasons.length
+        ? `Load ${lh.state.toUpperCase()} (${lh.tempC.toFixed(0)} °C): ${lh.reasons.join(' ')}`
+        : contact ? 'Wire ends touch, but output is OFF.' : 'Bring both exposed cable ends together while power is ON.';
       sceneStatusText.textContent = isOn ? 'OUTPUT ENABLED' : 'MACHINE STANDBY';
       flowText.textContent = isOn ? 'READY' : 'INACTIVE';
       powerFlow.classList.toggle('active', isOn);
@@ -1031,7 +1035,8 @@ interface VoltaLabApi {
 (window as unknown as { voltaLab: VoltaLabApi }).voltaLab = {
   engine,
   snapshot: () => engine.snapshot(),
-  attachLoad: (load, reversed = false) => { attachedLoad = { kind: 'load', load, reversed }; lastSyncKey = ''; },
+  // Validated at the API boundary: an invalid load throws a RangeError naming the parameter and is NOT attached.
+  attachLoad: (load, reversed = false) => { validateLoad(load); attachedLoad = { kind: 'load', load, reversed: reversed === true }; lastSyncKey = ''; },
   detachLoad: () => { attachedLoad = null; lastSyncKey = ''; },
   loads: { resistiveLoad, inductiveLoad, capacitiveLoad, rlcLoad, acInputSupplyLoad, dcMotorLoad, dcModuleLoad },
 };

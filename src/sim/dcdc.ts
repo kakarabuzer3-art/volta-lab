@@ -18,6 +18,8 @@
 // n = 1 is a non-isolated boost; n > 1 approximates an ISOLATED boost-derived stage
 // (transformer turns ratio) and is a documented MODEL ASSUMPTION, not a datasheet value.
 // A real boost needs practical duty limits (D ≤ dMax), so gain is bounded by n/(1−dMax).
+// In the duty equations η is the CONDUCTION (voltage-drop) efficiency 1 − R_cond·Iin/Vin, not Pout/Pin:
+// fixed and switching losses do not shift the CCM voltage ratio.
 // -----------------------------------------------------------------------------
 import type { Provenance } from './battery.ts';
 

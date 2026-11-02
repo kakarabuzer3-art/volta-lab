@@ -22,6 +22,7 @@
 // Nothing here is a measurement of a specific product. Replace with datasheet data.
 // -----------------------------------------------------------------------------
 import { thermalStep } from './thermal.ts';
+import { finite, socFraction, validateChemistryProfile, validatePackConfig } from './validate.ts';
 
 export type Chemistry = 'lead-acid' | 'li-ion';
 export type Provenance = 'physical-law' | 'engineering-approximation' | 'literature-typical' | 'model-assumption';
@@ -202,10 +203,10 @@ const modelCache = new WeakMap<PackConfig, PackModel>();
 export function packModel(config: PackConfig): PackModel {
   const cached = modelCache.get(config);
   if (cached) return cached;
+  validatePackConfig(config);
   const { cell, seriesCells: ns, parallelStrings: np } = config;
-  if (!(ns >= 1) || !(np >= 1) || !Number.isInteger(ns) || !Number.isInteger(np)) throw new RangeError('series/parallel counts must be positive integers');
-  if (!(cell.capacityAh > 0)) throw new RangeError('cell capacity must be positive');
   const profile = CHEMISTRIES[cell.chemistry];
+  validateChemistryProfile(profile);
   const cells = ns * np;
   const meanOcv = integrateTable(profile.ocvTable, 1);
   const cellEnergyWh = cell.capacityAh * meanOcv;
@@ -260,7 +261,8 @@ export interface BatteryState {
 }
 
 export function createBatteryState(soc = 1, tempC = 25): BatteryState {
-  return { soc: clamp(soc, 0, 1), v1V: 0, tempC, dischargedWh: 0, chargedWh: 0, terminalNetWh: 0, r0LossWh: 0, r1LossWh: 0, sideLossWh: 0, c1StoredWh: 0, chemicalNetWh: 0 };
+  socFraction('initial SOC', soc); finite('initial battery temperature (°C)', tempC);
+  return { soc, v1V: 0, tempC, dischargedWh: 0, chargedWh: 0, terminalNetWh: 0, r0LossWh: 0, r1LossWh: 0, sideLossWh: 0, c1StoredWh: 0, chemicalNetWh: 0 };
 }
 
 /** Terminal voltage for discharge-positive current `i` at the start of a step (V). */
