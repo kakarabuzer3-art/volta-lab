@@ -91,6 +91,16 @@ html, body { height: 100%; overflow: hidden; }
 .subtle-button.active .toggle-track { border-color: var(--green); background: rgba(75, 225, 172, 0.15); }
 .subtle-button.active .toggle-track i { transform: translateX(14px); background: var(--green); }
 
+/* Camera-mode button (FREE / LOCKED / ZOOM ONLY / ROTATE ONLY). */
+.camera-mode-btn { min-width: 138px; justify-content: center; gap: 8px; }
+.camera-mode-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.camera-mode-btn[data-mode='locked'] { color: #ffc94d; border-color: rgba(255, 201, 77, 0.55); }
+.camera-mode-btn[data-mode='zoom-only'], .camera-mode-btn[data-mode='rotate-only'] { color: #6fc3e6; border-color: rgba(111, 195, 230, 0.5); }
+.camera-mode-btn:focus-visible, .panel-toggle:focus-visible, .subtle-button:focus-visible { outline: 2px solid var(--green-soft); outline-offset: 2px; }
+/* Two-click wire connection hint. */
+.wire-hint { position: absolute; left: 50%; bottom: 74px; transform: translate(-50%, 6px); z-index: 12; max-width: min(92vw, 520px); padding: 9px 14px; border-radius: 10px; background: rgba(14, 18, 22, 0.92); border: 1px solid rgba(255, 201, 77, 0.45); color: #f4e3b0; font: var(--fs-2xs) var(--mono); letter-spacing: 0.04em; text-align: center; opacity: 0; pointer-events: none; transition: opacity 0.2s, transform 0.2s; }
+.wire-hint.show { opacity: 1; transform: translate(-50%, 0); }
+
 /* ------------------------------------------------------------ 3D scene */
 .scene-wrap { position: absolute; inset: 0; overflow: hidden; background: #0a0d10; }
 #sceneCanvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; z-index: 1; touch-action: none; cursor: grab; }
@@ -305,10 +315,12 @@ html, body { height: 100%; overflow: hidden; }
 /* ------------------------------------------------------------ Responsive */
 @media (max-width: 620px) {
   .stage-tools { top: 10px; right: 10px; gap: 8px; }
-  .floating-reading { top: 10px; left: 10px; padding: 9px 11px; min-width: 120px; }
+  .camera-mode-btn { min-width: 0; padding: 0 10px; gap: 6px; letter-spacing: 0.04em; }
+  .stage-tools .subtle-button:not(.camera-mode-btn) .toggle-track { display: none; }
+  .floating-reading { top: 64px; left: 10px; padding: 9px 11px; min-width: 120px; }
   .floating-reading strong { font-size: 28px; }
   .scene-coordinate { display: none; }
-  .scene-hint { max-width: 80%; white-space: normal; text-align: center; line-height: 1.5; bottom: 13px; }
+  .scene-hint { display: none; } /* on phones it collided with the status chips; the highlighted rings make the cables self-explanatory */
   .power-flow { right: 10px; bottom: 56px; padding: 7px 9px; }
   .wire-tip-label { bottom: 90px; }
   .control-column { top: 64px; right: 10px; bottom: 10px; width: calc(100vw - 20px); }

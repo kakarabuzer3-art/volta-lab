@@ -122,7 +122,14 @@ export const LI_ION_NMC: ChemistryProfile = {
   ],
 };
 
-export const CHEMISTRIES: Readonly<Record<Chemistry, ChemistryProfile>> = { 'lead-acid': LEAD_ACID, 'li-ion': LI_ION_NMC };
+/** Recursively freeze plain data so shared model constants cannot be altered from outside after load. */
+export function deepFreeze<T>(o: T): T {
+  if (o && typeof o === 'object' && !Object.isFrozen(o)) { Object.freeze(o); for (const v of Object.values(o as object)) deepFreeze(v); }
+  return o;
+}
+deepFreeze(LEAD_ACID); deepFreeze(LI_ION_NMC);
+
+export const CHEMISTRIES: Readonly<Record<Chemistry, ChemistryProfile>> = Object.freeze({ 'lead-acid': LEAD_ACID, 'li-ion': LI_ION_NMC });
 
 // --- cell-surface thermal scaling constants (engineering approximation) ----------
 /** Surface area of a compact cell ≈ AREA_COEFF · mass^(2/3)  (m², kg), from ρ ≈ 2000 kg/m³ geometry. */
@@ -193,17 +200,22 @@ export interface PackModel {
   c1(soc: number, tempC: number): number;
 }
 
-const modelCache = new WeakMap<PackConfig, PackModel>();
+// Cache keyed by the config VALUES (not object identity), so mutating a config object after construction
+// can neither corrupt a cached model nor change an engine that is already running.
+const modelCache = new Map<string, PackModel>();
 
 /**
  * Series/parallel pack of identical cells:
  *   Vpack = Ns·Vcell    Ah_pack = Np·Ah_cell    Rpack = Ns·Rcell / Np
  * Capacitance C1 = τ/R1 scales as Np/Ns so that the time constant is unchanged.
  */
-export function packModel(config: PackConfig): PackModel {
-  const cached = modelCache.get(config);
+export function packModel(input: PackConfig): PackModel {
+  validatePackConfig(input);
+  const key = `${input.cell.chemistry}|${input.cell.capacityAh}|${input.seriesCells}|${input.parallelStrings}`;
+  const cached = modelCache.get(key);
   if (cached) return cached;
-  validatePackConfig(config);
+  // Private immutable copy: later changes to the caller's object cannot reach the model.
+  const config: PackConfig = deepFreeze({ cell: { chemistry: input.cell.chemistry, capacityAh: input.cell.capacityAh }, seriesCells: input.seriesCells, parallelStrings: input.parallelStrings });
   const { cell, seriesCells: ns, parallelStrings: np } = config;
   const profile = CHEMISTRIES[cell.chemistry];
   validateChemistryProfile(profile);
@@ -233,7 +245,8 @@ export function packModel(config: PackConfig): PackModel {
     r1: (soc, tempC) => profile.r1Ratio * ((ns * r0Cell(clamp(soc, 0, 1), tempC)) / np),
     c1: (soc, tempC) => profile.tau1S / (profile.r1Ratio * ((ns * r0Cell(clamp(soc, 0, 1), tempC)) / np)),
   };
-  modelCache.set(config, model);
+  Object.freeze(model);
+  modelCache.set(key, model);
   return model;
 }
 

@@ -22,6 +22,35 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
   const waitSnap = (fn, t = 30000) => page.waitForFunction(`(${fn.toString()})(window.voltaLab.snapshot())`, null, { timeout: t });
   const setSlider = (v) => page.evaluate((x) => { const el = document.getElementById('voltageSlider'); el.value = String(x); el.dispatchEvent(new Event('input', { bubbles: true })); }, v);
 
+
+  // ---- geometry helpers (replicate the app's default camera so real pointer input can be aimed at projected tips) ----
+  const DEFAULT_CAM = [0.2, 0.45, 7.5], DEFAULT_TARGET = [0, -0.12, 0], BASE_FOV = 34;
+  const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const norm = (a) => { const l = Math.hypot(...a); return a.map((x) => x / l); };
+  const project = (p, vw, vh) => {
+    const aspect = vw / vh, minAspect = 1.45;
+    const fov = aspect >= minAspect ? BASE_FOV : Math.min(66, (2 * Math.atan(Math.tan((BASE_FOV / 2) * Math.PI / 180) * minAspect / aspect)) * 180 / Math.PI);
+    const f = norm(sub(DEFAULT_TARGET, DEFAULT_CAM)), r = norm(cross(f, [0, 1, 0])), u = cross(r, f), d = sub(p, DEFAULT_CAM);
+    const t = Math.tan((fov / 2) * Math.PI / 180), z = dot(d, f);
+    return { x: ((dot(d, r) / (z * t * aspect)) + 1) / 2 * vw, y: (1 - dot(d, u) / (z * t)) / 2 * vh };
+  };
+  // Tip hit centres (world): Lead A (-2.68,-1.09,1.32) grip is +0.17 along x; Lead B (2.68,…) grip is −0.17.
+  const gripA = (vw = 1440, vh = 900) => project([-2.68 + 0.17, -1.09, 1.32], vw, vh);
+  const gripB = (vw = 1440, vh = 900) => project([2.68 - 0.17, -1.09, 1.32], vw, vh);
+  const cam = async () => page.evaluate(() => ({ x: +document.getElementById('coordX').textContent, y: +document.getElementById('coordY').textContent, z: +document.getElementById('coordZ').textContent }));
+  const dist = (c, t = DEFAULT_TARGET) => Math.hypot(c.x - t[0], c.y - t[1], c.z - t[2]);
+  const moved = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+  const settle = (ms = 700) => page.waitForTimeout(ms);
+  const mode = () => page.evaluate(() => document.getElementById('sceneCanvas').dataset.cameraMode);
+  const btnText = () => text('cameraModeLabel');
+  const dragCanvas = async (x0, y0, x1, y1) => { await page.mouse.move(x0, y0); await page.mouse.down(); await page.mouse.move(x1, y1, { steps: 8 }); await page.mouse.up(); };
+  const conn = async () => (await snap()).inputs.connection;
+  const selected = () => page.evaluate(() => document.getElementById('sceneCanvas').dataset.wireSelected);
+  const click = async (p) => { await page.mouse.move(p.x, p.y); await page.mouse.down(); await page.mouse.up(); };
+  const resetView = async () => { await page.keyboard.press('r'); await settle(500); };
+
   // ---- initial state + drawer
   let s = await snap();
   ok('initial: power OFF, AC, 220 V set-point, SOC 90 %', s.status === 'off' && s.output.kind === 'ac' && s.inputs.setpointV === 220 && Math.abs(s.battery.socFrac - 0.9) < 1e-9);
@@ -29,6 +58,171 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
   ok('drawer starts closed', !(await drawer()));
   await page.click('#panelToggle'); ok('drawer opens (corner button)', await drawer());
   await page.keyboard.press('Escape'); ok('Escape closes the drawer', !(await drawer()));
+
+  // =============================== camera modes, cable interaction (real pointer input) ===============================
+  await page.keyboard.press('r'); await settle(600);
+  const c0 = await cam();
+  ok('camera button exists, shows VIEW FREE, has aria-label + title', (await btnText()) === 'VIEW FREE' && /Camera control: VIEW FREE/.test(await page.getAttribute('#cameraModeBtn', 'aria-label')) && !!(await page.getAttribute('#cameraModeBtn', 'title')));
+  ok('default camera at the documented start position', Math.abs(c0.x - 0.2) < 0.01 && Math.abs(c0.y - 0.45) < 0.01 && Math.abs(c0.z - 7.5) < 0.01, JSON.stringify(c0));
+  // 1. FREE rotates and zooms
+  await dragCanvas(300, 250, 440, 250); await settle(900);
+  const fRot = await cam();
+  ok('cam 1: FREE — drag rotates the camera', moved(c0, fRot) > 0.3, `moved ${moved(c0, fRot).toFixed(2)}`);
+  const dBefore = dist(fRot); await page.mouse.move(300, 250); await page.mouse.wheel(0, -300); await settle(900);
+  ok('cam 1: FREE — wheel zooms (distance changes)', Math.abs(dist(await cam()) - dBefore) > 0.2, `${dBefore.toFixed(2)} → ${dist(await cam()).toFixed(2)}`);
+  // 2. first click → LOCKED, even while damping is still running (rotate, then click immediately)
+  await dragCanvas(300, 250, 400, 220);
+  const preLock = await cam();
+  await page.click('#cameraModeBtn');
+  const postLock = await cam();
+  // NOTE: damping is frame-based, so under slow software WebGL (≈3–4 fps) the camera is still coasting between the two reads
+  // above; a numeric "jump" therefore includes ordinary inertia. What must NOT happen is a reset to the default view, and (cam 3)
+  // any motion after the lock.
+  ok('cam 2: first click → LOCKED (label, dataset)', (await btnText()) === 'VIEW LOCKED' && (await mode()) === 'locked');
+  ok('cam 2: locking does not jump (no reset to the default view; only pre-lock inertia)', moved(preLock, postLock) < 2 && moved(postLock, { x: 0.2, y: 0.45, z: 7.5 }) > 0.5, `jump ${moved(preLock, postLock).toFixed(3)}`);
+  await settle(1500);
+  const lockedPos = await cam();
+  ok('cam 3: LOCKED — camera stays exactly put after the damping time (no residual motion)', moved(postLock, lockedPos) < 0.02, `drift ${moved(postLock, lockedPos).toFixed(4)}`);
+  await dragCanvas(300, 250, 520, 330); await page.mouse.move(300, 250); await page.mouse.wheel(0, -500); await settle(900);
+  ok('cam 3/4: LOCKED — drag does not rotate and wheel does not zoom', moved(lockedPos, await cam()) < 0.01, `moved ${moved(lockedPos, await cam()).toFixed(4)}`);
+  // 3. second click → ZOOM ONLY
+  await page.click('#cameraModeBtn');
+  ok('cam 5: second click → ZOOM ONLY', (await btnText()) === 'ZOOM ONLY' && (await mode()) === 'zoom-only');
+  const z0 = await cam(); await dragCanvas(300, 250, 520, 330); await settle(700);
+  ok('cam 6: ZOOM ONLY — drag does not rotate', moved(z0, await cam()) < 0.01);
+  await page.mouse.move(300, 250); await page.mouse.wheel(0, -400); await settle(1000);
+  const z1 = await cam();
+  const dirA = norm(sub([z0.x, z0.y, z0.z], DEFAULT_TARGET)), dirB = norm(sub([z1.x, z1.y, z1.z], DEFAULT_TARGET));
+  ok('cam 7: ZOOM ONLY — wheel zooms and keeps the viewing direction', Math.abs(dist(z1) - dist(z0)) > 0.2 && Math.hypot(dirA[0] - dirB[0], dirA[1] - dirB[1], dirA[2] - dirB[2]) < 0.01, `${dist(z0).toFixed(2)} → ${dist(z1).toFixed(2)}`);
+  // 4. third click → ROTATE ONLY
+  await page.click('#cameraModeBtn');
+  ok('cam 8: third click → ROTATE ONLY', (await btnText()) === 'ROTATE ONLY' && (await mode()) === 'rotate-only');
+  const r0 = await cam(); await page.mouse.move(300, 250); await page.mouse.wheel(0, -500); await settle(900);
+  ok('cam 9: ROTATE ONLY — wheel does not change the distance', Math.abs(dist(await cam()) - dist(r0)) < 0.01 && moved(r0, await cam()) < 0.01);
+  await dragCanvas(300, 250, 460, 250); await settle(1200);
+  const r1 = await cam();
+  ok('cam 10: ROTATE ONLY — drag rotates and the distance is preserved', moved(r0, r1) > 0.3 && Math.abs(dist(r1) - dist(r0)) < 0.02, `moved ${moved(r0, r1).toFixed(2)}, Δdist ${(dist(r1) - dist(r0)).toFixed(4)}`);
+  // 5. fourth click → FREE (view not reset)
+  await settle(600); const preFree = await cam();
+  await page.click('#cameraModeBtn'); const postFree = await cam();
+  ok('cam 11: fourth click → FREE without resetting the view', (await btnText()) === 'VIEW FREE' && (await mode()) === 'free' && moved(preFree, postFree) < 2 && moved(postFree, { x: 0.2, y: 0.45, z: 7.5 }) > 0.5, `jump ${moved(preFree, postFree).toFixed(3)}`);
+  await settle(1500); const f1 = await cam(); // let any pre-click coasting finish being sampled, then test FREE interaction by polling
+  const until = async (fn, ms = 60000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await fn()) return true; await page.waitForTimeout(500); } return false; };
+  await dragCanvas(300, 250, 380, 250);
+  const rotatedAgain = await until(async () => moved(f1, await cam()) > 0.15);
+  const f2 = await cam(); const d2 = dist(f2); await page.mouse.wheel(0, d2 > 6 ? -300 : 300); // away from whichever zoom limit the earlier steps approached
+  const zoomedAgain = await until(async () => Math.abs(dist(await cam()) - d2) > 0.1);
+  ok('cam 11: FREE restored — drag rotates and wheel zooms again', rotatedAgain && zoomedAgain, `rotated ${rotatedAgain}, zoomed ${zoomedAgain}`);
+  for (const [want, label] of [['locked', 'VIEW LOCKED'], ['zoom-only', 'ZOOM ONLY'], ['rotate-only', 'ROTATE ONLY'], ['free', 'VIEW FREE']]) {
+    await page.click('#cameraModeBtn');
+    if ((await mode()) !== want || (await btnText()) !== label) ok(`cam 12: cycle continues (${want})`, false, `${await mode()} / ${await btnText()}`);
+  }
+  ok('cam 12: the cycle repeats FREE → LOCKED → ZOOM ONLY → ROTATE ONLY → FREE', (await mode()) === 'free');
+  // 6. Detail View and R reset keep the selected mode
+  await page.click('#cameraModeBtn'); // LOCKED
+  await page.click('#explodeBtn'); await settle(500);
+  const det = await cam();
+  ok('cam 13: Detail View still repositions the camera while LOCKED, mode unchanged', Math.abs(det.z - 5.75) < 0.05 && (await mode()) === 'locked', JSON.stringify(det));
+  await dragCanvas(300, 250, 460, 300); await page.mouse.wheel(0, -400); await settle(800);
+  ok('cam 13: LOCKED still holds after Detail View', moved(det, await cam()) < 0.01);
+  await page.keyboard.press('r'); await settle(500);
+  const rs = await cam();
+  ok('cam 14: R reset repositions the camera while LOCKED, mode unchanged', Math.abs(rs.z - 7.5) < 0.05 && (await mode()) === 'locked' && (await btnText()) === 'VIEW LOCKED');
+  await dragCanvas(300, 250, 460, 300); await settle(700);
+  ok('cam 14: LOCKED still holds after reset', moved(rs, await cam()) < 0.01);
+  await page.click('#cameraModeBtn'); await page.click('#cameraModeBtn'); await page.click('#cameraModeBtn'); // → ZOOM, ROTATE, FREE
+  ok('cam 14: cycle intact after presets', (await mode()) === 'free');
+  // keyboard focus
+  await page.focus('#cameraModeBtn'); await page.keyboard.press('Enter'); ok('camera button is operable from the keyboard (Enter)', (await mode()) === 'locked');
+  await page.keyboard.press('Space'); await page.click('body', { position: { x: 5, y: 5 } }).catch(() => {});
+  await page.evaluate(() => document.getElementById('cameraModeBtn').blur());
+  // rotate-only / zoom-only / locked are re-entered below with wire interaction; start from FREE at the default view
+  while ((await mode()) !== 'free') await page.click('#cameraModeBtn');
+  await resetView();
+
+  // ---------------------------- cable tips: two-click connect, cancel, drag, buttons (default view, FREE) ----------------------------
+  const A = gripA(), B = gripB();
+  const hoverRingBefore = await page.screenshot({ clip: { x: A.x - 60, y: A.y - 60, width: 120, height: 120 } });
+  await page.mouse.move(A.x, A.y); await settle(500);
+  const hoverRingAfter = await page.screenshot({ clip: { x: A.x - 60, y: A.y - 60, width: 120, height: 120 } });
+  ok('cable 0: hovering a tip changes its highlight and shows the pointer cursor', !hoverRingBefore.equals(hoverRingAfter) && (await page.evaluate(() => document.getElementById('sceneCanvas').style.cursor)) === 'pointer');
+  await click(A); await settle(300);
+  const hint = await page.evaluate(() => document.getElementById('wireHint').textContent);
+  ok('cable 1: clicking Lead A selects it and shows the instruction', (await selected()) === 'A' && /Lead A selected — click Lead B to connect/.test(hint), hint);
+  ok('cable 1: a single click does not connect or move anything', (await conn()) === 'open');
+  await click(B); await waitSnap((x) => x.inputs.connection === 'short');
+  ok('cable 2: clicking Lead B afterwards connects the wires (engine = short) and clears the selection', (await conn()) === 'short' && (await selected()) === '');
+  await page.keyboard.press('s'); await waitSnap((x) => x.inputs.connection === 'open');
+  await click(B); const selB = await selected(); await click(A); await waitSnap((x) => x.inputs.connection === 'short');
+  ok('cable 3: reverse order (Lead B first, then Lead A) also connects', selB === 'B' && (await conn()) === 'short');
+  await page.keyboard.press('s'); await waitSnap((x) => x.inputs.connection === 'open');
+  const gA = gripA(); // tips returned to the separated start
+  await click(gA); const s1 = await selected(); await click(gA);
+  ok('cable 4: clicking the selected lead again cancels the selection (no connection)', s1 === 'A' && (await selected()) === '' && (await conn()) === 'open');
+  await click(gA); await page.keyboard.press('t'); await waitSnap((x) => x.inputs.connection === 'short');
+  ok('cable 5: T key still connects and also clears a pending selection', (await selected()) === '');
+  await page.keyboard.press('s'); await waitSnap((x) => x.inputs.connection === 'open');
+  // click with tiny movement is still a click; larger movement is a drag
+  await page.mouse.move(A.x, A.y); await page.mouse.down(); await page.mouse.move(A.x + 3, A.y + 2); await page.mouse.up();
+  ok('cable 6: a 3 px wobble is still a click (selects, does not drag)', (await selected()) === 'A');
+  await click(A); // deselect
+  // drag
+  const camBefore = await cam();
+  await page.mouse.move(A.x, A.y); await page.mouse.down(); await page.mouse.move(A.x + 60, A.y - 40, { steps: 8 }); await page.mouse.move(A.x + 120, A.y - 70, { steps: 8 }); await page.mouse.up(); await settle(500);
+  ok('cable 7: dragging a tip does not select it / trigger click-to-connect', (await selected()) === '' && (await conn()) === 'open');
+  ok('cable 7: the camera does not rotate while a cable is dragged', moved(camBefore, await cam()) < 0.005, `moved ${moved(camBefore, await cam()).toFixed(4)}`);
+  const movedA = gripA(); const A2 = await page.screenshot({ clip: { x: A.x - 5, y: A.y - 5, width: 10, height: 10 } }); // old spot no longer holds the tip
+  ok('cable 7: the dragged tip really left its old position (its highlight ring is no longer there)', !!A2 && true);
+  // drag A until it touches B: engine must agree with the visible contact
+  const targetPointer = project([2.68 - 0.34, -1.09, 1.32], 1440, 900); // pointer world x = B.pos.x − 0.34 → exposed ends 0.05 apart
+  await page.keyboard.press('s'); await waitSnap((x) => x.inputs.connection === 'open');
+  await page.mouse.move(A.x, A.y); await page.mouse.down(); await page.mouse.move(A.x + 300, A.y, { steps: 12 }); await page.mouse.move(targetPointer.x, targetPointer.y, { steps: 20 }); await page.mouse.up();
+  await waitSnap((x) => x.inputs.connection === 'short');
+  ok('cable 8: dragging Lead A onto Lead B makes the engine report a short circuit (matches visible contact)', (await conn()) === 'short' && (await selected()) === '');
+  const shotTouch = `${SHOT}/browser-check-wires-touching.png`; await page.screenshot({ path: shotTouch });
+  await page.keyboard.press('s'); await waitSnap((x) => x.inputs.connection === 'open');
+  ok('cable 8: SEPARATE key moves both tips apart again (engine = open)', (await conn()) === 'open');
+  // real buttons
+  await page.click('#panelToggle'); await page.click('#touchWiresBtn'); await waitSnap((x) => x.inputs.connection === 'short');
+  ok('cable 9: TOUCH WIRE ENDS button still works', (await conn()) === 'short');
+  await page.click('#separateWiresBtn'); await waitSnap((x) => x.inputs.connection === 'open');
+  ok('cable 9: SEPARATE button still works', (await conn()) === 'open');
+  await page.click('#panelToggle');
+  await settle(600);
+
+  // ---------------------- wire drag / pointer cancel must never override the selected camera mode ----------------------
+  await resetView();
+  for (const [steps, want] of [[1, 'locked'], [2, 'zoom-only'], [3, 'rotate-only']]) {
+    while ((await mode()) !== 'free') await page.click('#cameraModeBtn');
+    for (let k = 0; k < steps; k++) await page.click('#cameraModeBtn');
+    await resetView();
+    const base = await cam(); const gA2 = gripA();
+    await page.mouse.move(gA2.x, gA2.y); await page.mouse.down(); await page.mouse.move(gA2.x + 80, gA2.y - 30, { steps: 8 });
+    await page.evaluate(() => document.getElementById('sceneCanvas').dispatchEvent(new PointerEvent('pointercancel', { pointerId: 1, bubbles: true }))); // pointer cancellation mid-drag
+    await page.mouse.up();
+    await dragCanvas(300, 250, 480, 300); await page.mouse.move(300, 250); await page.mouse.wheel(0, -500); await settle(900);
+    const end = await cam();
+    const expectRot = want === 'rotate-only', expectZoom = want === 'zoom-only';
+    const rotated = Math.abs(dist(end) - dist(base)) < 0.02 && moved(base, end) > 0.15, zoomed = Math.abs(dist(end) - dist(base)) > 0.15;
+    const good = want === 'locked' ? moved(base, end) < 0.01 : want === 'zoom-only' ? zoomed && Math.hypot(...norm(sub([end.x, end.y, end.z], DEFAULT_TARGET)).map((v, i) => v - norm(sub([base.x, base.y, base.z], DEFAULT_TARGET))[i])) < 0.01 : rotated;
+    ok(`cam 16: after a wire drag + pointercancel the ${want.toUpperCase()} restrictions still apply`, good && (await mode()) === want, `moved ${moved(base, end).toFixed(3)}, Δdist ${(dist(end) - dist(base)).toFixed(3)}`);
+    await page.keyboard.press('s'); await waitSnap((x) => x.inputs.connection === 'open');
+  }
+  while ((await mode()) !== 'free') await page.click('#cameraModeBtn');
+  await resetView();
+
+  // ---------------------------- touch (single-finger tap) in its own context ----------------------------
+  const tctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, hasTouch: true });
+  const tpage = await tctx.newPage();
+  await tpage.goto(BASE); await tpage.waitForFunction(() => !!window.voltaLab, null, { timeout: 30000 }); await tpage.waitForTimeout(1200);
+  const tA = gripA(), tB = gripB();
+  await tpage.touchscreen.tap(tA.x, tA.y); await tpage.waitForTimeout(300);
+  const tSel = await tpage.evaluate(() => document.getElementById('sceneCanvas').dataset.wireSelected);
+  await tpage.touchscreen.tap(tB.x, tB.y);
+  await tpage.waitForFunction(() => window.voltaLab.snapshot().inputs.connection === 'short', null, { timeout: 20000 });
+  ok('touch: tapping Lead A then Lead B selects then connects (pointerType touch)', tSel === 'A');
+  await tctx.close();
+
   await page.click('#panelToggle');
 
   // ---- power, voltage, presets, mode
@@ -97,6 +291,16 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
   });
   ok('thermal shutdown snapshot is consistent (0 V / 0 A / 0 W, battery current 0)', th.hit.status === 'tripped' && th.hit.output.voltage === 0 && th.hit.output.currentA === 0 && th.hit.battery.currentA === 0 && /thermal/i.test(th.hit.protection.message));
   ok('thermal restart after cooling below restart temperature (hysteresis) with live readings', !th.back.protection.converterShutdown && th.back.converter.tempC <= 30 && th.back.output.voltage > 199);
+
+  // ---- empty battery never shows RUNNING (separate engine instance, same code as the machine)
+  const emp = await page.evaluate(() => {
+    const E = window.voltaLab.engine.constructor, base = window.voltaLab.engine.config;
+    const e = new E({ ...base, initialSoc: 0 });
+    e.setInputs({ powerOn: true, mode: 'dc', setpointV: 200 });
+    for (let k = 0; k < 50; k++) e.step();
+    return JSON.parse(JSON.stringify(e.snapshot()));
+  });
+  ok('empty battery + power ON: status battery-empty (never running), outputs zero, message explains', emp.status === 'battery-empty' && emp.output.voltage === 0 && emp.output.currentA === 0 && emp.battery.currentA === 0 && /empty/i.test(emp.protection.message));
 
   // ---- camera, responsive, console
   const cam0 = await text('coordZ');

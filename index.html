@@ -17,6 +17,7 @@
           <div id="sceneWrap" class="scene-wrap">
             <canvas id="sceneCanvas" aria-label="3D industrial power unit. Drag either cable tip; drag the front dial to change the output setting; click the AC/DC selector to switch source mode (key M); drag empty space to orbit."></canvas>
             <div class="scene-vignette"></div>
+            <div id="wireHint" class="wire-hint" role="status" aria-live="polite"></div>
             <div class="scene-coordinate coord-tl">X: <b id="coordX">0.00</b><br>Y: <b id="coordY">0.00</b><br>Z: <b id="coordZ">0.00</b></div>
             <div class="scene-status"><span class="status-square"></span><span id="sceneStatusText">MACHINE STANDBY</span><span class="scene-status-sep">·</span><span id="sceneFps">60 FPS TARGET</span></div>
             <div class="scene-hint"><span class="mouse-symbol">⌖</span> DRAG CABLE TIPS <span class="hint-sep">·</span> DRAG FRONT DIAL TO ADJUST <span class="hint-sep">·</span> ORBIT VIEW</div>
@@ -28,6 +29,10 @@
         </section>
 
         <div class="stage-tools">
+          <button id="cameraModeBtn" class="subtle-button camera-mode-btn" type="button" data-mode="free" aria-label="Camera control: VIEW FREE. Click to switch to VIEW LOCKED." title="Camera control: VIEW FREE. Click to switch to VIEW LOCKED.">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l1.6-2.2h6.8L17 8h3v11H4z"/><circle cx="12" cy="13.2" r="3.3"/></svg>
+            <span id="cameraModeLabel">VIEW FREE</span>
+          </button>
           <button id="explodeBtn" class="subtle-button" type="button" aria-pressed="false">DETAIL VIEW <span class="toggle-track"><i></i></span></button>
           <button id="panelToggle" class="panel-toggle" type="button" aria-expanded="false" aria-controls="controlPanel" aria-label="Open control panel" title="Controls (P)">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path class="icon-open" d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle class="icon-open" cx="16" cy="7" r="2"/><circle class="icon-open" cx="8" cy="17" r="2"/><path class="icon-close" d="M6 6l12 12M18 6L6 18"/></svg>

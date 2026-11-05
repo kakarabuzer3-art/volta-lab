@@ -87,6 +87,38 @@ controls.maxDistance = 12;
 controls.maxPolarAngle = Math.PI * 0.82;
 controls.update();
 
+// ---- Camera modes -------------------------------------------------------------------------------------------
+// ONE source of truth (`cameraMode`) decides which OrbitControls permissions exist. `pointerLock` is a separate,
+// temporary lock used while a cable tip / dial is being dragged. applyCameraControls() is the ONLY function that
+// writes controls.enabled / enableRotate / enableZoom / enablePan, so ending a drag can never re-enable something
+// the selected mode forbids.
+type CameraMode = 'free' | 'locked' | 'zoom-only' | 'rotate-only';
+const CAMERA_CYCLE: readonly CameraMode[] = ['free', 'locked', 'zoom-only', 'rotate-only'];
+const CAMERA_LABEL: Record<CameraMode, string> = { free: 'VIEW FREE', locked: 'VIEW LOCKED', 'zoom-only': 'ZOOM ONLY', 'rotate-only': 'ROTATE ONLY' };
+let cameraMode: CameraMode = 'free';
+let pointerLock = false;
+function applyCameraControls() {
+  controls.enabled = !pointerLock;
+  controls.enableRotate = cameraMode === 'free' || cameraMode === 'rotate-only';
+  controls.enableZoom = cameraMode === 'free' || cameraMode === 'zoom-only';
+  controls.enablePan = cameraMode === 'free';
+  canvas.dataset.cameraMode = cameraMode;
+}
+/** Drop any damping/inertia that is still pending WITHOUT moving the camera (flags alone do not stop it). */
+function stopCameraMomentum() {
+  const p = camera.position.clone(), t = controls.target.clone();
+  controls.enableDamping = false;
+  controls.update(); // flushes the pending rotate/zoom/pan deltas to zero
+  camera.position.copy(p); controls.target.copy(t);
+  controls.enableDamping = true;
+  controls.update(); // re-derives orientation from the restored position; deltas are zero, so nothing moves
+}
+function setCameraMode(mode: CameraMode) {
+  cameraMode = mode;
+  stopCameraMomentum();
+  applyCameraControls();
+}
+
 scene.add(new THREE.HemisphereLight('#d6e0ed', '#111318', 1.75));
 const keyLight = new THREE.DirectionalLight('#f2f6ff', 3.2);
 keyLight.position.set(4.2, 5.5, 6);
@@ -124,19 +156,40 @@ const blackCableMat = mat('#20242a', 0.13, 0.68);
 const brassMat = mat('#c4a46d', 0.85, 0.24);
 const copperTipMat = mat('#d9ad83', 0.8, 0.22, '#57371f', 0.12);
 
-// Stage / studio floor.
-const floor = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), mat('#0a0d11', 0.2, 0.78));
-floor.rotation.x = -Math.PI / 2;
-floor.position.y = -1.21;
-floor.receiveShadow = true;
-scene.add(floor);
-const floorHalo = new THREE.Mesh(
-  new THREE.CircleGeometry(3.7, 72),
-  new THREE.MeshBasicMaterial({ color: '#193244', transparent: true, opacity: 0.13, depthWrite: false }),
-);
-floorHalo.rotation.x = -Math.PI / 2;
-floorHalo.position.set(0, -1.195, -0.05);
-scene.add(floorHalo);
+// Industrial ground slab. The machine's four rubber feet end at y = -1.18, so the slab's TOP face sits exactly there:
+// the feet touch it (no gap, no sinking) and it receives the existing key-light shadow map for the foot contact shadows.
+// It is wider and deeper than the machine + both cable lengths, perfectly flat, and only ~6 cm thick (not a podium).
+const GROUND_TOP_Y = -1.18;
+const GROUND_W = 11.4, GROUND_D = 7.6, GROUND_R = 0.55, GROUND_T = 0.06, GROUND_CZ = 0.45;
+function roundedRectShape(w: number, d: number, r: number, inset = 0): THREE.Shape {
+  const x = w / 2 - inset, y = d / 2 - inset, rr = Math.max(0.01, r - inset);
+  const sh = new THREE.Shape();
+  sh.moveTo(-x + rr, -y);
+  sh.lineTo(x - rr, -y); sh.absarc(x - rr, -y + rr, rr, -Math.PI / 2, 0, false);
+  sh.lineTo(x, y - rr); sh.absarc(x - rr, y - rr, rr, 0, Math.PI / 2, false);
+  sh.lineTo(-x + rr, y); sh.absarc(-x + rr, y - rr, rr, Math.PI / 2, Math.PI, false);
+  sh.lineTo(-x, -y + rr); sh.absarc(-x + rr, -y + rr, rr, Math.PI, Math.PI * 1.5, false);
+  return sh;
+}
+const groundGeometry = new THREE.ExtrudeGeometry(roundedRectShape(GROUND_W, GROUND_D, GROUND_R), { depth: GROUND_T, bevelEnabled: true, bevelThickness: 0.012, bevelSize: 0.012, bevelSegments: 2, curveSegments: 20 });
+const ground = new THREE.Mesh(groundGeometry, mat('#232a32', 0.12, 0.84));
+// Extrusion runs along +z of the shape plane; rotate so the shape lies flat (x/z) and the extrusion points up.
+ground.rotation.x = -Math.PI / 2;
+ground.position.set(0, GROUND_TOP_Y - GROUND_T - 0.012, GROUND_CZ);
+ground.receiveShadow = true;
+scene.add(ground);
+// Restrained perimeter detail: a thin edge highlight and a dim inset safety line, both lying flat on the top face.
+function groundOutline(inset: number, color: string, opacity: number): THREE.LineLoop {
+  const pts = roundedRectShape(GROUND_W, GROUND_D, GROUND_R, inset).getPoints(24).map((v) => new THREE.Vector3(v.x, GROUND_TOP_Y + 0.002, -v.y + GROUND_CZ));
+  return new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color, transparent: true, opacity }));
+}
+scene.add(groundOutline(0.02, '#566677', 0.7), groundOutline(0.3, '#6b5a2c', 0.4));
+// Far surround: very dark and unlit-looking so it reads as the room floor, not as another platform.
+const surround = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), mat('#07090c', 0.1, 0.95));
+surround.rotation.x = -Math.PI / 2;
+surround.position.y = GROUND_TOP_Y - GROUND_T - 0.03;
+surround.receiveShadow = true;
+scene.add(surround);
 
 const machine = new THREE.Group();
 scene.add(machine);
@@ -273,9 +326,10 @@ machine.add(displaySheen);
 let lastDisplayKey = '';
 // Fonts load asynchronously: repaint once they are ready so the screen never keeps fallback glyphs.
 document.fonts?.ready.then(() => { lastDisplayKey = ''; });
-type DisplayState = 'off' | 'open' | 'short' | 'load' | 'protected';
+type DisplayState = 'off' | 'open' | 'short' | 'load' | 'protected' | 'empty';
 function displayState(s: Snapshot): DisplayState {
   if (s.status === 'tripped') return 'protected';
+  if (s.status === 'battery-empty') return 'empty';
   if (s.status === 'off') return 'off';
   return s.inputs.connection === 'short' ? 'short' : s.inputs.connection === 'load' ? 'load' : 'open';
 }
@@ -285,7 +339,7 @@ function paintMachineDisplay(snap: Snapshot) {
   const state = displayState(snap);
   const ac = o.kind === 'ac';
   const live = state === 'open' || state === 'short' || state === 'load';
-  const status = state === 'protected' ? 'TRIP' : state === 'short' ? 'SHORT' : state === 'load' ? 'LOAD' : state === 'open' ? 'RUN' : 'OFF';
+  const status = state === 'protected' ? 'TRIP' : state === 'empty' ? 'EMPTY' : state === 'short' ? 'SHORT' : state === 'load' ? 'LOAD' : state === 'open' ? 'RUN' : 'OFF';
   const freqText = ac ? o.freqHz.toFixed(1) : 'DC';
   const peakText = o.vPeakV === null ? 'n/a' : o.vPeakV.toFixed(1);
   const socText = `${(snap.battery.socFrac * 100).toFixed(0)}%`;
@@ -296,7 +350,7 @@ function paintMachineDisplay(snap: Snapshot) {
 
   const ctx = displayContext;
   const W = DISPLAY_W, H = DISPLAY_H;
-  const accent = state === 'protected' ? '#ff7a7a' : state === 'short' ? '#ffa56b' : live ? '#4be1ac' : '#5b7068';
+  const accent = state === 'protected' ? '#ff7a7a' : state === 'empty' ? '#ffb347' : state === 'short' ? '#ffa56b' : live ? '#4be1ac' : '#5b7068';
   const bright = live ? '#c4ffec' : '#4d6a5f';
   const soft = live ? '#8fe6c6' : '#4d6a5f';
   const label = '#68a592';
@@ -502,10 +556,11 @@ for (let i = 0; i < 2; i++) {
 
 // Cable endpoints float in front of the machine and can be dragged in 3D.
 const cableStartPositions = terminalPositions.map((p) => p.clone().add(new THREE.Vector3(0, 0, 0.15)));
-const tipPositions = [new THREE.Vector3(-2.68, -1.10, 1.32), new THREE.Vector3(2.68, -1.10, 1.32)];
+const tipPositions = [new THREE.Vector3(-2.68, -1.09, 1.32), new THREE.Vector3(2.68, -1.09, 1.32)];
 const tipGroups: THREE.Group[] = [];
 const cableMeshes: THREE.Mesh[] = [];
 const tipTargets: THREE.Object3D[] = [];
+const tipRings: Array<{ ring: THREE.Mesh; ringMat: THREE.MeshBasicMaterial; glow: THREE.Mesh; glowMat: THREE.MeshBasicMaterial }> = [];
 const cableMaterials = [redCableMat, blackCableMat];
 for (let i = 0; i < 2; i++) {
   const initialCurve = new THREE.QuadraticBezierCurve3(
@@ -550,7 +605,26 @@ for (let i = 0; i < 2; i++) {
   tipGroup.traverse((child: THREE.Object3D) => { child.userData.tipIndex = i; });
   scene.add(tipGroup);
   tipGroups.push(tipGroup);
-  tipTargets.push(exposedMetal, endCap, tipHalo);
+  // Generous invisible hit sphere around the exposed metal end (≈35 px radius at the default view) — the ONLY wire
+  // object the raycaster tests, so the middle of the cable and the rest of the machine can never be picked as a tip.
+  const hit = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 8), new THREE.MeshBasicMaterial({ visible: false }));
+  hit.position.x = direction * 0.17;
+  hit.userData.tipIndex = i;
+  tipGroup.add(hit);
+  tipTargets.push(hit);
+  // Affordance ring: a camera-facing ring around the grip. It is a child of the tip group, so it follows the true
+  // 3D position; it never changes the conductor itself.
+  const ringMat = new THREE.MeshBasicMaterial({ color: '#6fb7d6', transparent: true, opacity: 0.4, depthTest: false, depthWrite: false, toneMapped: false });
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.15, 0.172, 40), ringMat);
+  ring.position.x = direction * 0.17;
+  ring.renderOrder = 20;
+  tipGroup.add(ring);
+  const glowMat = new THREE.MeshBasicMaterial({ color: '#6fb7d6', transparent: true, opacity: 0.0, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
+  const glow = new THREE.Mesh(new THREE.CircleGeometry(0.24, 40), glowMat);
+  glow.position.x = direction * 0.17;
+  glow.renderOrder = 19;
+  tipGroup.add(glow);
+  tipRings.push({ ring, ringMat, glow, glowMat });
 }
 function rebuildCable(index: number) {
   const start = cableStartPositions[index];
@@ -654,7 +728,7 @@ let lastSyncKey = '';
 function syncEngineInputs(contact: boolean) {
   const connection = contact ? SHORT_CONNECTION : attachedLoad ?? OPEN_CONNECTION;
   const key = `${isOn}|${sourceMode}|${targetVoltage}|${contact ? 's' : attachedLoad ? 'l' : 'o'}`;
-  if (key === lastSyncKey && engine.getInputs().connection === connection) return;
+  if (key === lastSyncKey) return;
   lastSyncKey = key;
   engine.setInputs({ powerOn: isOn, mode: sourceMode === 'AC' ? 'ac' : 'dc', setpointV: targetVoltage, connection });
 }
@@ -674,7 +748,7 @@ function setMouse(event: PointerEvent) {
   mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 }
 function setTip(index: number, x: number, y: number) {
-  tipGroups[index].position.set(THREE.MathUtils.clamp(x, -3.45, 3.45), THREE.MathUtils.clamp(y, -1.16, 0.12), 1.32);
+  tipGroups[index].position.set(THREE.MathUtils.clamp(x, -3.45, 3.45), THREE.MathUtils.clamp(y, -1.09, 0.12), 1.32);
   rebuildCable(index);
 }
 function exposedTipPosition(index: number) {
@@ -760,32 +834,95 @@ function setPower(value: boolean) {
   announce(isOn ? 'Main power on.' : 'Main power off.');
 }
 function touchWires() {
-  setTip(0, -0.23, -1.12);
-  setTip(1, 0.23, -1.12);
+  setTip(0, -0.23, -1.09);
+  setTip(1, 0.23, -1.09);
+  clearWireSelection();
 }
 function separateWires() {
-  setTip(0, -2.68, -1.10);
-  setTip(1, 2.68, -1.10);
+  setTip(0, -2.68, -1.09);
+  setTip(1, 2.68, -1.09);
+  clearWireSelection();
 }
 function resetCamera() {
   camera.position.copy(defaultCamera);
   controls.target.copy(defaultTarget);
-  controls.update();
+  stopCameraMomentum();
   detailView = false;
   $('explodeBtn').classList.remove('active');
   $('explodeBtn').setAttribute('aria-pressed', 'false');
   $('explodeBtn').innerHTML = 'DETAIL VIEW <span class="toggle-track"><i></i></span>';
 }
 
+// ---- Cable tips: hover / selected affordance and two-click connection -------------------------------------
+const wireHint = $('wireHint');
+const LEAD_NAME = ['Lead A', 'Lead B'] as const;
+let selectedTip = -1;
+let hoverTip = -1;
+let hintTimer = 0;
+function showWireHint(text: string, persistent: boolean) {
+  wireHint.textContent = text;
+  wireHint.classList.add('show');
+  window.clearTimeout(hintTimer);
+  if (!persistent) hintTimer = window.setTimeout(() => wireHint.classList.remove('show'), 2800);
+  announce(text);
+}
+function clearWireSelection() {
+  selectedTip = -1;
+  canvas.dataset.wireSelected = '';
+}
+function selectTip(i: number) {
+  selectedTip = i;
+  canvas.dataset.wireSelected = i === 0 ? 'A' : 'B';
+  showWireHint(`${LEAD_NAME[i]} selected — click ${LEAD_NAME[1 - i]} to connect (click ${LEAD_NAME[i]} again to cancel)`, true);
+}
+/** A click (not a drag) on a tip: select, cancel, or connect to the other lead. */
+function clickTip(i: number) {
+  if (selectedTip < 0) selectTip(i);
+  else if (selectedTip === i) { clearWireSelection(); showWireHint(`${LEAD_NAME[i]} deselected.`, false); }
+  else { touchWires(); showWireHint('Leads connected — output terminals are shorted together.', false); }
+}
+const tmpColor = new THREE.Color();
+function updateTipVisuals(elapsed: number) {
+  for (let i = 0; i < 2; i++) {
+    const v = tipRings[i];
+    v.ring.quaternion.copy(camera.quaternion); v.glow.quaternion.copy(camera.quaternion); // always face the viewer
+    const selected = selectedTip === i, hover = hoverTip === i || activeTip === i;
+    const pulse = 0.5 + 0.5 * Math.sin(elapsed * 2.4 + i * 1.7);
+    // idle: a calm, always-visible ring (this is the touch-device cue); hover: brighter green; selected: amber + glow.
+    tmpColor.set(selected ? '#ffc94d' : hover ? '#4be1ac' : '#6fb7d6');
+    v.ringMat.color.copy(tmpColor); v.glowMat.color.copy(tmpColor);
+    v.ringMat.opacity = selected ? 1 : hover ? 0.95 : 0.32 + 0.16 * pulse;
+    v.glowMat.opacity = selected ? 0.34 + 0.16 * pulse : hover ? 0.2 : 0.05 * pulse;
+    const scale = selected ? 1.18 + 0.06 * pulse : hover ? 1.1 : 1;
+    v.ring.scale.setScalar(scale); v.glow.scale.setScalar(scale);
+  }
+}
+
+// Click vs drag: a tip only starts to move after the pointer travels past a small threshold.
+const DRAG_THRESHOLD_MOUSE = 6, DRAG_THRESHOLD_TOUCH = 10; // CSS px
+let downX = 0, downY = 0, tipDragging = false, dragThreshold = DRAG_THRESHOLD_MOUSE;
+const grabOffset = new THREE.Vector3();
+function pickTip(): number {
+  raycaster.setFromCamera(mouse, camera);
+  const hits = raycaster.intersectObjects(tipTargets, false); // sorted nearest-first
+  return hits.length ? Number(hits[0].object.userData.tipIndex) : -1;
+}
+function lockPointer(event: PointerEvent) {
+  pointerLock = true; applyCameraControls();
+  canvas.setPointerCapture(event.pointerId);
+  event.preventDefault();
+  event.stopImmediatePropagation(); // OrbitControls never sees a press that belongs to a machine control
+}
 canvas.addEventListener('pointerdown', (event) => {
-  setMouse(event); raycaster.setFromCamera(mouse, camera);
-  const wireHits = raycaster.intersectObjects(tipTargets, true);
-  if (wireHits.length) {
-    activeTip = Number(wireHits[0].object.userData.tipIndex);
+  setMouse(event);
+  const tip = pickTip();
+  if (tip >= 0) {
+    activeTip = tip; tipDragging = false; downX = event.clientX; downY = event.clientY;
+    dragThreshold = event.pointerType === 'mouse' ? DRAG_THRESHOLD_MOUSE : DRAG_THRESHOLD_TOUCH;
     dragPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -tipGroups[activeTip].position.z);
-    controls.enabled = false;
-    canvas.setPointerCapture(event.pointerId);
-    event.preventDefault();
+    // remember where inside the tip the user grabbed it, so it does not jump to the pointer when the drag starts
+    if (raycaster.ray.intersectPlane(dragPlane, dragPoint)) grabOffset.copy(tipGroups[activeTip].position).sub(dragPoint); else grabOffset.set(0, 0, 0);
+    lockPointer(event);
     return;
   }
   const controlsHits = raycaster.intersectObjects([powerButtonGroup, dialGroup, modeGroup], true);
@@ -793,35 +930,32 @@ canvas.addEventListener('pointerdown', (event) => {
     let node: THREE.Object3D | null = controlsHits[0].object;
     while (node && !node.userData.control) node = node.parent;
     if (node?.userData.control === 'power') {
-      controls.enabled = false;
-      canvas.setPointerCapture(event.pointerId);
+      lockPointer(event);
       setPower(!isOn);
       canvas.style.cursor = 'pointer';
-      event.preventDefault();
       return;
     }
     if (node?.userData.control === 'mode') {
-      controls.enabled = false;
-      canvas.setPointerCapture(event.pointerId);
+      lockPointer(event);
       setMode(sourceMode === 'AC' ? 'DC' : 'AC');
       canvas.style.cursor = 'pointer';
-      event.preventDefault();
       return;
     }
     if (node?.userData.control === 'dial') {
       activeDial = true;
       lastDialX = event.clientX;
-      controls.enabled = false;
-      canvas.setPointerCapture(event.pointerId);
+      lockPointer(event);
       canvas.style.cursor = 'ew-resize';
-      event.preventDefault();
     }
   }
-});
+}, { capture: true });
 canvas.addEventListener('pointermove', (event) => {
   if (activeTip >= 0) {
-    setMouse(event); raycaster.setFromCamera(mouse, camera);
-    if (raycaster.ray.intersectPlane(dragPlane, dragPoint)) setTip(activeTip, dragPoint.x, dragPoint.y);
+    if (!tipDragging && Math.hypot(event.clientX - downX, event.clientY - downY) > dragThreshold) tipDragging = true;
+    if (tipDragging) {
+      setMouse(event); raycaster.setFromCamera(mouse, camera);
+      if (raycaster.ray.intersectPlane(dragPlane, dragPoint)) setTip(activeTip, dragPoint.x + grabOffset.x, dragPoint.y + grabOffset.y);
+    }
     event.preventDefault();
     return;
   }
@@ -831,20 +965,42 @@ canvas.addEventListener('pointermove', (event) => {
     event.preventDefault();
     return;
   }
-  setMouse(event); raycaster.setFromCamera(mouse, camera);
-  const hits = raycaster.intersectObjects(tipTargets, true).length || raycaster.intersectObjects([powerButtonGroup, dialGroup, modeGroup], true).length;
+  setMouse(event);
+  hoverTip = event.pointerType === 'mouse' || event.pointerType === 'pen' ? pickTip() : -1;
+  const hits = hoverTip >= 0 || raycaster.intersectObjects([powerButtonGroup, dialGroup, modeGroup], true).length;
   canvas.style.cursor = hits ? 'pointer' : 'grab';
 });
 function endPointer(event?: PointerEvent) {
   if (event && canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
-  activeTip = -1;
+  // A tip press that never became a drag is a click. A cancelled pointer is never a click.
+  if (event?.type === 'pointerup' && activeTip >= 0 && !tipDragging) clickTip(activeTip);
+  activeTip = -1; tipDragging = false;
   activeDial = false;
-  controls.enabled = true;
+  pointerLock = false; applyCameraControls(); // only lifts the temporary lock; the selected camera mode is untouched
   canvas.style.cursor = 'grab';
 }
 canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', endPointer);
-canvas.addEventListener('pointerleave', () => { if (activeTip < 0 && !activeDial) canvas.style.cursor = 'grab'; });
+canvas.addEventListener('pointerleave', () => { hoverTip = -1; if (activeTip < 0 && !activeDial) canvas.style.cursor = 'grab'; });
+canvas.addEventListener('lostpointercapture', () => { if (activeTip >= 0 || activeDial) endPointer(); });
+
+// Camera-mode button: FREE → LOCKED → ZOOM ONLY → ROTATE ONLY → FREE.
+const cameraBtn = $('cameraModeBtn') as HTMLButtonElement;
+const cameraBtnLabel = $('cameraModeLabel');
+function paintCameraButton() {
+  const next = CAMERA_CYCLE[(CAMERA_CYCLE.indexOf(cameraMode) + 1) % CAMERA_CYCLE.length];
+  cameraBtnLabel.textContent = CAMERA_LABEL[cameraMode];
+  cameraBtn.dataset.mode = cameraMode;
+  const tip = `Camera control: ${CAMERA_LABEL[cameraMode]}. Click to switch to ${CAMERA_LABEL[next]}.`;
+  cameraBtn.setAttribute('aria-label', tip); cameraBtn.title = tip;
+}
+cameraBtn.addEventListener('click', () => {
+  setCameraMode(CAMERA_CYCLE[(CAMERA_CYCLE.indexOf(cameraMode) + 1) % CAMERA_CYCLE.length]);
+  paintCameraButton();
+  announce(`Camera mode: ${CAMERA_LABEL[cameraMode]}.`);
+});
+applyCameraControls();
+paintCameraButton();
 
 powerBtn.addEventListener('click', () => setPower(!isOn));
 voltageSlider.addEventListener('input', () => setVoltage(Number(voltageSlider.value)));
@@ -858,7 +1014,7 @@ $('explodeBtn').addEventListener('click', () => {
   $('explodeBtn').innerHTML = detailView ? 'WIDE VIEW <span class="toggle-track"><i></i></span>' : 'DETAIL VIEW <span class="toggle-track"><i></i></span>';
   camera.position.copy(detailView ? detailCamera : defaultCamera);
   controls.target.copy(detailView ? detailTarget : defaultTarget);
-  controls.update();
+  stopCameraMomentum(); // preset moves the camera on purpose; the selected camera mode is left untouched
 });
 
 // Control panel drawer: small corner button opens / closes it (also P / Escape).
@@ -923,6 +1079,7 @@ function animate() {
   const dt = Math.min(clock.getDelta(), 0.04);
   const elapsed = clock.elapsedTime;
   controls.update();
+  updateTipVisuals(elapsed);
   rocker.rotation.x += (rockerTarget - rocker.rotation.x) * Math.min(1, dt * 18); // smooth rocker tilt
   modeLever.rotation.z += (modeLeverTarget - modeLever.rotation.z) * Math.min(1, dt * 16); // smooth AC/DC lever
 
@@ -984,19 +1141,25 @@ function animate() {
     powerBar.style.width = `${Math.min(1, o.pRealW / (MAX_VOLTAGE * CURRENT_LIMIT_A)) * 100}%`;
     frequencyBar.style.width = `${o.freqHz / 50 * 100}%`;
     const protectedOff = dState === 'protected';
+    const batteryEmpty = dState === 'empty';
     const loadOn = dState === 'load';
     connectionPill.classList.toggle('connected', contact || loadOn);
-    connectionPill.innerHTML = `<i></i> ${protectedOff ? 'PROTECTED SHUTDOWN' : contact ? (isOn ? 'SHORT CIRCUIT' : 'CONTACT / OFF') : attachedLoad ? 'LOAD CONNECTED' : 'OPEN CIRCUIT'}`;
-    leadAState.textContent = protectedOff ? 'TRIPPED' : contact ? (isOn ? 'SHORT' : 'CONTACT') : isOn ? 'LIVE' : 'READY';
-    leadBState.textContent = protectedOff ? 'TRIPPED' : contact ? (isOn ? 'SHORT' : 'CONTACT') : 'READY';
+    connectionPill.innerHTML = `<i></i> ${protectedOff ? 'PROTECTED SHUTDOWN' : batteryEmpty ? 'BATTERY EMPTY' : contact ? (isOn ? 'SHORT CIRCUIT' : 'CONTACT / OFF') : attachedLoad ? 'LOAD CONNECTED' : 'OPEN CIRCUIT'}`;
+    leadAState.textContent = batteryEmpty ? 'DISABLED' : protectedOff ? 'TRIPPED' : contact ? (isOn ? 'SHORT' : 'CONTACT') : isOn ? 'LIVE' : 'READY';
+    leadBState.textContent = batteryEmpty ? 'DISABLED' : protectedOff ? 'TRIPPED' : contact ? (isOn ? 'SHORT' : 'CONTACT') : 'READY';
     leadAState.classList.toggle('hot', poweredContact); leadBState.classList.toggle('hot', poweredContact);
     arcStatus.classList.toggle('active', poweredContact);
-    arcState.textContent = protectedOff ? 'TRIPPED' : poweredContact ? (o.currentLimited ? 'LIMITED' : 'ACTIVE') : contact ? 'NO POWER' : 'IDLE';
+    arcState.textContent = batteryEmpty ? 'EMPTY' : protectedOff ? 'TRIPPED' : poweredContact ? (o.currentLimited ? 'LIMITED' : 'ACTIVE') : contact ? 'NO POWER' : 'IDLE';
     const arcNote = $('arcStatus').querySelector('small')!;
     if (protectedOff) {
       arcNote.textContent = `${snap.protection.message ?? 'Protective shutdown latched.'} Turn MAIN POWER off, then on, to reset.`;
       sceneStatusText.textContent = 'PROTECTED SHUTDOWN';
       flowText.textContent = 'TRIPPED';
+      powerFlow.classList.remove('active');
+    } else if (batteryEmpty) {
+      arcNote.textContent = snap.protection.message ?? 'Battery is empty.';
+      sceneStatusText.textContent = 'BATTERY EMPTY';
+      flowText.textContent = 'EMPTY';
       powerFlow.classList.remove('active');
     } else if (poweredContact) {
       arcNote.textContent = `Short circuit · ${o.currentA.toFixed(1)} A ${o.kind === 'ac' ? 'RMS' : 'DC'}${o.currentLimited ? ` (current limit ${CURRENT_LIMIT_A} A; trips in ${TRIP_DELAY_S} s)` : ''} · spark is visual only`;
@@ -1036,7 +1199,11 @@ interface VoltaLabApi {
   engine,
   snapshot: () => engine.snapshot(),
   // Validated at the API boundary: an invalid load throws a RangeError naming the parameter and is NOT attached.
-  attachLoad: (load, reversed = false) => { validateLoad(load); attachedLoad = { kind: 'load', load, reversed: reversed === true }; lastSyncKey = ''; },
+  attachLoad: (load, reversed = false) => {
+    validateLoad(load);
+    if (typeof reversed !== 'boolean') throw new RangeError(`reversed must be a boolean; got ${String(reversed)}`);
+    attachedLoad = { kind: 'load', load, reversed }; lastSyncKey = '';
+  },
   detachLoad: () => { attachedLoad = null; lastSyncKey = ''; },
   loads: { resistiveLoad, inductiveLoad, capacitiveLoad, rlcLoad, acInputSupplyLoad, dcMotorLoad, dcModuleLoad },
 };

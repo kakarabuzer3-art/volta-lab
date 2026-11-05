@@ -110,12 +110,39 @@ and no further battery energy is consumed. The converter cools exponentially, re
 and the restart snapshot is already energised. Tests: `src/sim/thermal-shutdown.test.ts`.
 (Before this fix the snapshot of the shutdown step still showed the old energised readings for one step.)
 
+### Battery depletion inside a step (partial interval)
+If the pack runs out of charge part-way through a 20 ms step, the machine ran only for `activeS = dt·active`; the rest (`idleS = dt − activeS`) is dead
+time. The electrical operating point is **re-solved for the shortened interval** (the battery's relaxing RC branch averages differently over a shorter time;
+the weak dependence is iterated to a fixed point), so the converter power balance stays exact at the boundary. Then, in this order: battery
+advances `activeS` at that current and `idleS` at zero current, and the SOC is set to exactly 0 (no floating-point dust); the converter heats for `activeS`
+with its real loss and cools for `idleS`; the attached load's health advances `activeS` with the real drive (overstress and heat), then `idleS` with **no drive** (cooling
+only); the overcurrent and battery timers count `activeS` only; output / loss / load-heat energy are booked for `activeS` only; the snapshot is re-solved at the new boundary
+(disabled: 0 V, 0 A, 0 W). Tests: `src/sim/phase1.test.ts` (depletion at 100 %, 95 %, 50 %, 5 % of a step; closed-form thermal expectations; ledger).
+
+### Empty battery
+An empty pack (SOC = 0) never reports `running`. With power ON the snapshot status is `battery-empty`, the message says the battery is empty and that there is
+no charging feature, every output / battery current is 0 and `battery.limits` contains `empty`. This holds for `initialSoc = 0`, after normal discharge (also after the latched
+`battery-empty` trip) and after power cycling. With power OFF the status is `off`. Nothing is ever generated from an empty battery (ledger flat, `chargedWh = 0`).
+Note: a heavily loaded pack near empty normally trips on `battery-low-voltage` first (its terminal voltage reaches the cutoff before SOC reaches 0); `battery-empty` is reached with light loads.
+
+### No-drive load state
+The engine distinguishes AC drive, DC drive and **no drive** (machine off, disabled, empty battery, output open). With no drive the load is not judged against any input type,
+voltage or current (no “unsupported input”, overvoltage or overcurrent warning), it dissipates nothing and only cools toward ambient (exact exponential). Transient
+warnings clear; permanent damage and latched load protection are preserved. (Before, a disabled machine fed a fake 0 V DC drive, so an AC-rated load could be warned about “DC input”.)
+
 ### Input validation
 Every public entry point (battery pack, chemistry, converter, inverter, rectifier, loads, engine config, `setInputs`, `attachLoad`) rejects invalid
 numbers with a `RangeError` naming the parameter: NaN / ±Infinity, efficiencies outside 0 < η ≤ 1, duty limit outside 0 < Dmax < 1, non-positive
 R/L/C/thermal values, non-integer cell counts, SOC outside 0–1, inverted rating intervals, restart temperature not above ambient / below shutdown.
 `null` means “unspecified” in load ratings and is accepted. Finite set-points outside 0–415 V are clamped; NaN is rejected (it is never turned into 0 V).
 Tests: `src/sim/validation.test.ts`.
+**Connections** are validated strictly at runtime: only `open`, `short`, or `load` with a valid `Load` and a boolean `reversed` are accepted (null / undefined / unknown kind / missing or
+invalid load / non-boolean `reversed` → `RangeError` naming the field). Validation happens **before** any state is touched, so a rejected call changes nothing (connection, timers, trips,
+load health, previous snapshot). `Engine.attachLoad()` and `window.voltaLab.attachLoad()` validate `reversed` too. The engine stores its own copy of an accepted connection.
+**Chemistry profiles**: `cutoffVPerCell` and `maxChargeVPerCell` finite and positive with max > cutoff; SOC-table coordinates finite, within 0–1, strictly increasing and covering exactly 0…1;
+OCV values finite, positive and non-decreasing; resistance factors finite and positive. The shipped profiles were checked and needed no value changes.
+**Immutability**: the engine deep-copies and freezes its `EngineConfig`; `packModel()` copies the pack config and caches by *values* (not object identity); the shared chemistry profiles are frozen.
+Changing the caller's config object after construction cannot change a running engine. Tests: `src/sim/phase1.test.ts`.
 
 ### Energy ledger: sign conventions and tolerances
 Discharge is positive. Per step (exact, floating-point): `chemical = terminal + R0 loss + R1 loss + ΔE(C1)`; and

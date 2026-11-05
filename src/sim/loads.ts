@@ -243,16 +243,31 @@ export function loadOperatingPoint(load: Load, health: LoadHealth, drive: LoadDr
 const fmt = (x: number, u: string): string => `${Math.abs(x) >= 100 ? x.toFixed(0) : x.toFixed(2)} ${u}`;
 
 /** Advance load health by dt. Pure: returns a new health object. */
-export function stepLoadHealth(load: Load, health: LoadHealth, drive: LoadDrive, op: LoadOperatingPoint, ambientC: number, dtS: number): LoadHealth {
+export function stepLoadHealth(load: Load, health: LoadHealth, drive: LoadDrive | null, op: LoadOperatingPoint, ambientC: number, dtS: number): LoadHealth {
   if (health.state === 'damaged') return { ...health, tempC: thermalStep(health.tempC, 0, ambientC, load.thermal.cthJPerK, load.thermal.rthKPerW, dtS) };
   const r = load.ratings;
   const reasons: string[] = [];
-  const unit = drive.kind === 'ac' ? 'V rms' : 'V';
-  const vmag = Math.abs(drive.v);
   let damage = false, trip = false, over = false, warn = false;
   let stressNow = false;
 
   if (health.state === 'protection') return { ...health, tempC: thermalStep(health.tempC, 0, ambientC, load.thermal.cthJPerK, load.thermal.rthKPerW, dtS) };
+
+  // NO DRIVE (machine off / disabled / battery empty / output open): nothing is applied to the load, so no
+  // input-type, voltage or current judgement is made and no heat is generated. The load only cools; transient
+  // warnings clear; permanent damage and latched protection (handled above) are preserved.
+  if (drive === null) {
+    const tempC = thermalStep(health.tempC, 0, ambientC, load.thermal.cthJPerK, load.thermal.rthKPerW, dtS);
+    const overstressS = Math.max(0, health.overstressS - dtS);
+    const rr = load.ratings;
+    const idleReasons: string[] = [];
+    let dead = false;
+    if (rr.tMaxC !== null && tempC >= rr.tMaxC) { dead = true; idleReasons.push(`Thermal damage: ${tempC.toFixed(1)} °C reached the maximum ${rr.tMaxC} °C.`, 'Permanent failure — modelled as an open circuit.'); }
+    const hotIdle = rr.tWarnC !== null && tempC >= rr.tWarnC;
+    if (hotIdle && !dead) idleReasons.push(`Overheating: ${tempC.toFixed(1)} °C reached the warning level ${rr.tWarnC} °C.`);
+    return { tempC, state: dead ? 'damaged' : hotIdle ? 'overheating' : 'normal', overstressS, reasons: idleReasons };
+  }
+  const unit = drive.kind === 'ac' ? 'V rms' : 'V';
+  const vmag = Math.abs(drive.v);
 
   // Input-type and frequency compatibility (informational + consequence via physics below).
   if (r.input === 'ac' && drive.kind === 'dc') { warn = true; reasons.push('Unsupported input: load is rated for AC but is driven with DC.'); }

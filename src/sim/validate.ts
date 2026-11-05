@@ -40,12 +40,36 @@ export function validateChemistryProfile(p: ChemistryProfile): void {
   positive(`${n}.specificEnergyWhPerKg`, p.specificEnergyWhPerKg); positive(`${n}.cpJPerKgK`, p.cpJPerKgK);
   finite(`${n}.maxTempC`, p.maxTempC); finite(`${n}.ocvTempCoeffVPerK`, p.ocvTempCoeffVPerK); finite(`${n}.r0TempCoeffPerK`, p.r0TempCoeffPerK);
   positive(`${n}.cutoffVPerCell`, p.cutoffVPerCell);
+  positive(`${n}.maxChargeVPerCell`, p.maxChargeVPerCell);
   if (!(p.maxChargeVPerCell > p.cutoffVPerCell)) bad(`${n}.maxChargeVPerCell`, `greater than cutoffVPerCell (${p.cutoffVPerCell})`, p.maxChargeVPerCell);
   for (const [tn, t] of [['ocvTable', p.ocvTable], ['r0SocFactor', p.r0SocFactor]] as const) {
-    if (t.length < 2) bad(`${n}.${tn}`, 'a table with ≥ 2 points', t.length);
-    t.forEach(([x, y], k) => { finite(`${n}.${tn}[${k}].soc`, x); positive(`${n}.${tn}[${k}].value`, y); if (k > 0 && !(x > t[k - 1][0])) bad(`${n}.${tn}[${k}].soc`, 'strictly increasing', x); });
+    if (!Array.isArray(t) || t.length < 2) bad(`${n}.${tn}`, 'a table with ≥ 2 points', Array.isArray(t) ? t.length : t);
+    t.forEach((pt, k) => {
+      if (!Array.isArray(pt) || pt.length !== 2) bad(`${n}.${tn}[${k}]`, 'a [soc, value] pair', pt);
+      const [x, y] = pt;
+      finite(`${n}.${tn}[${k}].soc`, x);
+      if (x < 0 || x > 1) bad(`${n}.${tn}[${k}].soc`, 'a fraction between 0 and 1', x);
+      positive(`${n}.${tn}[${k}].value`, y);
+      if (k > 0 && !(x > t[k - 1][0])) bad(`${n}.${tn}[${k}].soc`, 'strictly increasing', x);
+    });
+    // Coverage: the table must span the whole SOC range, otherwise the ends would be silently extrapolated.
+    if (t[0][0] !== 0) bad(`${n}.${tn}[0].soc`, 'exactly 0 (table must cover SOC 0–1)', t[0][0]);
+    if (t[t.length - 1][0] !== 1) bad(`${n}.${tn}[${t.length - 1}].soc`, 'exactly 1 (table must cover SOC 0–1)', t[t.length - 1][0]);
   }
   p.ocvTable.forEach(([, v], k) => { if (k > 0 && v < p.ocvTable[k - 1][1]) bad(`${n}.ocvTable[${k}]`, 'non-decreasing with SOC', v); });
+}
+
+/** Connection accepted by the engine: only 'open', 'short', or 'load' with a valid Load and a boolean `reversed`. */
+export function validateConnection(c: unknown): void {
+  if (!c || typeof c !== 'object') bad('connection', "an object { kind: 'open' | 'short' | 'load' }", c);
+  const o = c as { kind?: unknown; load?: unknown; reversed?: unknown };
+  if (o.kind === 'open' || o.kind === 'short') return;
+  if (o.kind === 'load') {
+    validateLoad(o.load as Load);
+    if (typeof o.reversed !== 'boolean') bad('connection.reversed', 'a boolean', o.reversed);
+    return;
+  }
+  bad('connection.kind', "'open' | 'short' | 'load'", o.kind);
 }
 
 export function validatePackConfig(c: PackConfig): void {

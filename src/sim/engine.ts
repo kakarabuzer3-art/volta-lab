@@ -24,7 +24,8 @@ import type { InverterSolution, InverterSpec } from './inverter.ts';
 import { acResponse, acSupplyDetail, createLoadHealth, dcCurrentA, loadOperatingPoint, stepLoadHealth } from './loads.ts';
 import type { Load, LoadHealth, LoadOperatingPoint } from './loads.ts';
 import { thermalStep } from './thermal.ts';
-import { finite, nonNegative, positive, socFraction, validateInverterSpec, validateLoad, validatePackConfig } from './validate.ts';
+import { deepFreeze } from './battery.ts';
+import { finite, nonNegative, positive, socFraction, validateConnection, validateInverterSpec, validateLoad, validatePackConfig } from './validate.ts';
 
 export const STEP_S = 0.02;
 export const MAX_CATCHUP_S = 0.25;
@@ -86,7 +87,7 @@ export interface Snapshot {
   timeS: number;
   steps: number;
   inputs: { powerOn: boolean; mode: OutputMode; setpointV: number; connection: 'open' | 'short' | 'load'; reversed: boolean };
-  status: 'off' | 'running' | 'limited' | 'tripped';
+  status: 'off' | 'running' | 'limited' | 'tripped' | 'battery-empty';
   protection: { trip: TripReason | null; message: string | null; overcurrentTimerS: number; converterShutdown: boolean };
   battery: {
     chemistry: string; label: string; seriesCells: number; parallelStrings: number; capacityAh: number;
@@ -120,6 +121,7 @@ export function validateEngineConfig(c: EngineConfig): void {
   if (!(c.converter.tRestartC > c.ambientC)) throw new RangeError(`converter.tRestartC (${c.converter.tRestartC}) must be above ambientC (${c.ambientC}) or the converter could never restart`);
 }
 
+const EMPTY_TEXT = 'Battery is empty (0 % charge): output disabled. This simulator has no charging feature.';
 const TRIP_TEXT: Record<TripReason, string> = {
   'overcurrent': 'Output held in current limit past the trip delay.',
   'battery-low-voltage': 'Battery terminal voltage fell to the cutoff voltage under load.',
@@ -149,37 +151,46 @@ export class Engine {
 
   constructor(config: EngineConfig = defaultConfig()) {
     validateEngineConfig(config);
-    this.config = config;
-    this.pack = packModel(config.pack);
-    this.bat = createBatteryState(config.initialSoc, config.ambientC);
-    this.convTempC = config.ambientC;
-    this.health = createLoadHealth(config.ambientC);
+    // Private deep, frozen copy: the caller keeping/mutating its own object cannot change a running engine.
+    this.config = deepFreeze(structuredClone(config));
+    this.pack = packModel(this.config.pack);
+    this.bat = createBatteryState(this.config.initialSoc, this.config.ambientC);
+    this.convTempC = this.config.ambientC;
+    this.health = createLoadHealth(this.config.ambientC);
     this.snap = this.compute(this.idleResult());
   }
 
   // ---- inputs ---------------------------------------------------------------------------------
   getInputs(): Readonly<EngineInputs> { return this.inputs; }
 
-  setInputs(p: Partial<EngineInputs>): void {
+  setInputs(p: Partial<EngineInputs>): void { this.applyInputs(p, false); }
+
+  private applyInputs(p: Partial<EngineInputs>, resetHealth: boolean): void {
     const prev = this.inputs;
     const next: EngineInputs = { ...prev, ...p };
-    // Boundary validation: invalid input is rejected (never silently turned into 0 V). Finite set-points
-    // outside the machine's documented 0–415 V range are clamped to that range.
+    // ---- 1. validate EVERYTHING first. Nothing below the validation block runs if any field is bad, so a
+    //         rejected call cannot change the connection, timers, trips, load health or the last snapshot.
     finite('setpointV', next.setpointV);
     if (typeof next.powerOn !== 'boolean') throw new RangeError(`powerOn must be a boolean; got ${String(next.powerOn)}`);
     if (next.mode !== 'ac' && next.mode !== 'dc') throw new RangeError(`mode must be 'ac' or 'dc'; got ${String(next.mode)}`);
-    if (next.connection.kind === 'load' && next.connection !== prev.connection) validateLoad(next.connection.load);
+    if ('connection' in p || next.connection !== prev.connection) validateConnection(next.connection);
+    // ---- 2. commit. Finite set-points outside the documented 0–415 V range are clamped to that range.
+    const c = next.connection;
+    next.connection = c.kind === 'load' ? { kind: 'load', load: c.load, reversed: c.reversed } : { kind: c.kind };
     next.setpointV = Math.min(MAX_SETPOINT_V, Math.max(0, next.setpointV));
     if (prev.powerOn && !next.powerOn) { this.trip = null; this.ocTimer = 0; this.batTimer = 0; }
     if (prev.mode !== next.mode) { this.ocTimer = 0; this.batTimer = 0; } // no stale mode-specific protection state
-    if (prev.connection.kind === 'load' && next.connection.kind === 'load' && prev.connection.load !== next.connection.load) this.health = createLoadHealth(this.config.ambientC);
-    if (next.connection.kind === 'load' && prev.connection.kind !== 'load') this.health = createLoadHealth(this.config.ambientC);
+    const newLoad = next.connection.kind === 'load' && (prev.connection.kind !== 'load' || prev.connection.load !== next.connection.load);
+    if (resetHealth || newLoad) this.health = createLoadHealth(this.config.ambientC);
     this.inputs = next;
     this.lastResult = this.solveElectrical();
     this.snap = this.compute(this.lastResult);
   }
 
-  attachLoad(load: Load, reversed = false): void { this.health = createLoadHealth(this.config.ambientC); this.setInputs({ connection: { kind: 'load', load, reversed } }); }
+  attachLoad(load: Load, reversed = false): void {
+    // Validate before anything changes (atomic): a bad load or non-boolean `reversed` leaves the engine untouched.
+    this.applyInputs({ connection: { kind: 'load', load, reversed } }, true);
+  }
   detachLoad(): void { this.setInputs({ connection: { kind: 'open' } }); }
 
   // ---- time -----------------------------------------------------------------------------------
@@ -201,45 +212,63 @@ export class Engine {
     const dt = STEP_S;
     const cfg = this.config;
     const inp = this.inputs;
-    const R = this.solveElectrical();
-    // Thermal state of converter.
-    this.convTempC = thermalStep(this.convTempC, R.convHeatW, cfg.ambientC, cfg.converter.cthJPerK, cfg.converter.rthKPerW, dt);
-    if (!this.shutdown && this.convTempC >= cfg.converter.tShutdownC) this.shutdown = true;
-    else if (this.shutdown && this.convTempC <= cfg.converter.tRestartC) this.shutdown = false;
+    let R = this.solveElectrical();
 
-    // Battery.
-    // A battery cannot give more charge than it holds. If SOC reaches 0 inside this step, the output ran
-    // at the requested current for only the fraction `active` of the step (exactly the charge that was
-    // left) and was dead for the rest. All ledger terms below are scaled by `active`, so no energy is
-    // credited to the output that the battery did not supply.
-    const requested = R.batteryCurrentA;
+    // Battery. A battery cannot give more charge than it holds. If SOC reaches 0 inside this step, the output
+    // ran for only the fraction `active` of the step and was dead for the rest. EVERYTHING that depends on the
+    // machine running (converter heat, load heat, overstress and protection timers, ledger) is therefore applied
+    // for `activeS` only; the remaining `idleS` is zero-load time during which the converter and load only cool.
+    let requested = R.batteryCurrentA;
     let active = 1;
     const first = stepBattery(this.pack, this.bat, requested, dt, cfg.ambientC);
     if (requested > 0 && first.currentA < requested * (1 - 1e-12)) {
+      // Charge left Q (A·s) must equal I·activeS. The converter operating point is re-solved for the shortened
+      // interval (the battery's relaxing RC branch averages differently over a shorter time), iterating the weak
+      // dependence to a fixed point so the converter power balance stays exact at the depletion boundary.
+      const chargeAs = this.bat.soc * this.pack.capacityAh * 3600;
       active = first.currentA / requested;
+      for (let it = 0; it < 12; it++) {
+        const Rn = this.solveElectrical(dt * active);
+        const activeNew = Math.min(1, chargeAs / (Rn.batteryCurrentA * dt));
+        const done = Math.abs(activeNew - active) < 1e-14;
+        R = Rn; requested = Rn.batteryCurrentA; active = activeNew;
+        if (done) break;
+      }
       const a = stepBattery(this.pack, this.bat, requested, dt * active, cfg.ambientC);
-      this.bat = stepBattery(this.pack, a.state, 0, dt * (1 - active), cfg.ambientC).state;
+      // The charge was used up by construction; remove floating-point dust so an exhausted pack is exactly empty.
+      this.bat = { ...stepBattery(this.pack, a.state, 0, dt * (1 - active), cfg.ambientC).state, soc: 0 };
     } else {
       this.bat = first.state;
     }
     const applied = requested * active;
+    const activeS = dt * active;
+    const idleS = dt - activeS;
 
-    // Load health from the actual terminal conditions.
+    // Converter thermal state: heated for the active time, then cooling with zero dissipation.
+    this.convTempC = thermalStep(this.convTempC, R.convHeatW, cfg.ambientC, cfg.converter.cthJPerK, cfg.converter.rthKPerW, activeS);
+    if (idleS > 0) this.convTempC = thermalStep(this.convTempC, 0, cfg.ambientC, cfg.converter.cthJPerK, cfg.converter.rthKPerW, idleS);
+    if (!this.shutdown && this.convTempC >= cfg.converter.tShutdownC) this.shutdown = true;
+    else if (this.shutdown && this.convTempC <= cfg.converter.tRestartC) this.shutdown = false;
+
+    // Load health from the actual terminal conditions. `R.drive === null` means NO drive (off / disabled /
+    // open): the load is not judged against any input, it only cools.
     if (inp.connection.kind === 'load') {
-      this.health = stepLoadHealth(inp.connection.load, this.health, R.drive ?? { kind: 'dc', v: 0, freqHz: 0 }, R.loadOp ?? ZERO_OP, cfg.ambientC, dt);
-    } else if (R.drive === null) {
-      /* nothing */
+      const load = inp.connection.load;
+      let h = this.health;
+      h = stepLoadHealth(load, h, R.drive ?? null, R.loadOp ?? ZERO_OP, cfg.ambientC, activeS);
+      if (idleS > 0) h = stepLoadHealth(load, h, null, ZERO_OP, cfg.ambientC, idleS);
+      this.health = h;
     }
 
-    // Protection (deterministic timers).
+    // Protection (deterministic timers; they only count time the machine was actually running).
     if (inp.powerOn && !this.trip) {
-      if (R.currentLimited) this.ocTimer += dt; else this.ocTimer = 0;
+      if (R.currentLimited) this.ocTimer += activeS; else this.ocTimer = 0;
       if (this.ocTimer >= cfg.tripDelayS) this.trip = 'overcurrent';
       const lim = batteryLimits(this.pack, this.bat, R.batteryTerminalV, applied);
       const lowV = lim.includes('low-voltage') && applied > 0;
       if (this.bat.soc <= 0 && applied > 0) this.trip = 'battery-empty';
-      else if (lim.includes('over-temperature')) this.batTimer += dt;
-      else if (lowV || lim.includes('over-discharge-current')) this.batTimer += dt;
+      else if (lim.includes('over-temperature')) this.batTimer += activeS;
+      else if (lowV || lim.includes('over-discharge-current')) this.batTimer += activeS;
       else this.batTimer = 0;
       if (!this.trip && this.batTimer >= cfg.batteryTripDelayS) {
         this.trip = lim.includes('over-temperature') ? 'battery-over-temperature' : lowV ? 'battery-low-voltage' : 'battery-over-current';
@@ -267,13 +296,13 @@ export class Engine {
   }
 
   // ---- electrical solve for the present state (pure with respect to state) ----------------------
-  private solveElectrical(): StepResult {
+  private solveElectrical(durationS: number = STEP_S): StepResult {
     const inp = this.inputs;
     const cfg = this.config;
     // Source seen by the converter over ONE physics step: the exact Thevenin equivalent of the
     // battery's exponentially relaxing RC branch (E_eff, R_eff). With it, the converter power solve and
     // the battery energy bookkeeping use the same mean terminal voltage → ledger identity (B) is exact.
-    const eff = batteryEffectiveSource(this.pack, this.bat, STEP_S);
+    const eff = batteryEffectiveSource(this.pack, this.bat, durationS);
     const e = eff.eEffV;
     const src = { eV: Math.max(0, e), rOhm: eff.rEffOhm };
     const enabled = inp.powerOn && !this.trip && !this.shutdown && this.bat.soc > 0;
@@ -327,7 +356,11 @@ export class Engine {
     const live = R.enabled;
     const conn = inp.connection;
     const limited = (R.dc?.limited ?? R.ac?.limited) ?? null;
-    const status: Snapshot['status'] = this.trip || this.shutdown ? 'tripped' : !inp.powerOn ? 'off' : limited ? 'limited' : 'running';
+    const empty = b.soc <= 0;
+    // An empty battery can never be "running": with power ON it reports 'battery-empty' (even after the empty-battery trip
+    // latched, and after power cycling), with power OFF it simply reports 'off'.
+    const status: Snapshot['status'] = this.shutdown || (this.trip && !(empty && this.trip === 'battery-empty')) ? 'tripped'
+      : !inp.powerOn ? 'off' : empty ? 'battery-empty' : limited ? 'limited' : 'running';
     const rContact = cfg.contactOhm;
     const prospective: Measured = conn.kind === 'short' && inp.powerOn ? inp.setpointV / rContact : null;
     const remainingWh = storedEnergyWh(pk, b.soc);
@@ -341,11 +374,11 @@ export class Engine {
       timeS: this.timeS, steps: this.steps,
       inputs: { powerOn: inp.powerOn, mode: inp.mode, setpointV: inp.setpointV, connection: conn.kind, reversed: conn.kind === 'load' ? conn.reversed : false },
       status,
-      protection: { trip: this.trip, message: this.trip ? TRIP_TEXT[this.trip] : this.shutdown ? 'Converter thermal shutdown (restarts after cooling).' : null, overcurrentTimerS: this.ocTimer, converterShutdown: this.shutdown },
+      protection: { trip: this.trip, message: inp.powerOn && empty && (!this.trip || this.trip === 'battery-empty') ? EMPTY_TEXT : this.trip ? TRIP_TEXT[this.trip] : this.shutdown ? 'Converter thermal shutdown (restarts after cooling).' : null, overcurrentTimerS: this.ocTimer, converterShutdown: this.shutdown },
       battery: {
         chemistry: pk.profile.chemistry, label: pk.profile.label, seriesCells: pk.config.seriesCells, parallelStrings: pk.config.parallelStrings, capacityAh: pk.capacityAh,
         socFrac: b.soc, remainingAh: b.soc * pk.capacityAh, remainingWh, nominalWh: pk.nominalEnergyWh, ocvV: ocv, terminalV: vt, currentA: i, powerW: vt * i,
-        tempC: b.tempC, r0Ohm: pk.r0(b.soc, b.tempC), cutoffV: pk.cutoffV, dischargedWh: b.dischargedWh, chargedWh: b.chargedWh, limits: batteryLimits(pk, b, vt, i),
+        tempC: b.tempC, r0Ohm: pk.r0(b.soc, b.tempC), cutoffV: pk.cutoffV, dischargedWh: b.dischargedWh, chargedWh: b.chargedWh, limits: empty && inp.powerOn && !batteryLimits(pk, b, vt, i).includes('empty') ? [...batteryLimits(pk, b, vt, i), 'empty'] : batteryLimits(pk, b, vt, i),
       },
       converter: {
         topology: !live || !stage ? 'idle' : ac ? `${stage.topology} → H-bridge inverter` : stage.topology,
