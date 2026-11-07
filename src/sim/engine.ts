@@ -133,7 +133,12 @@ const TRIP_TEXT: Record<TripReason, string> = {
 export class Engine {
   readonly config: EngineConfig;
   readonly pack: PackModel;
-  private inputs: EngineInputs = { powerOn: false, mode: 'ac', setpointV: 220, connection: { kind: 'open' } };
+  // Inputs are stored FROZEN (and an attached load as a private deep-frozen clone): neither the object the caller passed in nor the
+  // one getInputs() returns can alter validated simulation state. `loadSrc`/`loadKey` remember which caller object (and which
+  // content) the clone came from, so re-sending an unchanged load is cheap and does not reset its health.
+  private inputs: Readonly<EngineInputs> = Object.freeze({ powerOn: false, mode: 'ac', setpointV: 220, connection: Object.freeze({ kind: 'open' } as const) });
+  private loadSrc: Load | null = null;
+  private loadKey = '';
   private bat: BatteryState;
   private convTempC: number;
   private shutdown = false;
@@ -167,22 +172,31 @@ export class Engine {
 
   private applyInputs(p: Partial<EngineInputs>, resetHealth: boolean): void {
     const prev = this.inputs;
-    const next: EngineInputs = { ...prev, ...p };
+    const next: EngineInputs = { ...prev, ...p } as EngineInputs;
     // ---- 1. validate EVERYTHING first. Nothing below the validation block runs if any field is bad, so a
     //         rejected call cannot change the connection, timers, trips, load health or the last snapshot.
     finite('setpointV', next.setpointV);
     if (typeof next.powerOn !== 'boolean') throw new RangeError(`powerOn must be a boolean; got ${String(next.powerOn)}`);
     if (next.mode !== 'ac' && next.mode !== 'dc') throw new RangeError(`mode must be 'ac' or 'dc'; got ${String(next.mode)}`);
-    if ('connection' in p || next.connection !== prev.connection) validateConnection(next.connection);
+    const connChanged = 'connection' in p && p.connection !== prev.connection;
+    if (connChanged) validateConnection(next.connection);
     // ---- 2. commit. Finite set-points outside the documented 0–415 V range are clamped to that range.
-    const c = next.connection;
-    next.connection = c.kind === 'load' ? { kind: 'load', load: c.load, reversed: c.reversed } : { kind: c.kind };
-    next.setpointV = Math.min(MAX_SETPOINT_V, Math.max(0, next.setpointV));
+    let conn = prev.connection, newLoad = false;
+    if (connChanged) {
+      const c = next.connection;
+      if (c.kind === 'load') {
+        const key = JSON.stringify(c.load);
+        const same = prev.connection.kind === 'load' && this.loadSrc === c.load && this.loadKey === key;
+        const stored: Load = same ? (prev.connection as { load: Load }).load : deepFreeze(structuredClone(c.load));
+        conn = Object.freeze({ kind: 'load' as const, load: stored, reversed: c.reversed });
+        newLoad = !same; this.loadSrc = c.load; this.loadKey = key;
+      } else { conn = Object.freeze({ kind: c.kind }); this.loadSrc = null; this.loadKey = ''; }
+    }
+    const setpointV = Math.min(MAX_SETPOINT_V, Math.max(0, next.setpointV));
     if (prev.powerOn && !next.powerOn) { this.trip = null; this.ocTimer = 0; this.batTimer = 0; }
     if (prev.mode !== next.mode) { this.ocTimer = 0; this.batTimer = 0; } // no stale mode-specific protection state
-    const newLoad = next.connection.kind === 'load' && (prev.connection.kind !== 'load' || prev.connection.load !== next.connection.load);
     if (resetHealth || newLoad) this.health = createLoadHealth(this.config.ambientC);
-    this.inputs = next;
+    this.inputs = Object.freeze({ powerOn: next.powerOn, mode: next.mode, setpointV, connection: conn });
     this.lastResult = this.solveElectrical();
     this.snap = this.compute(this.lastResult);
   }
@@ -370,7 +384,7 @@ export class Engine {
       const d = acSupplyDetail(conn.load, R.vOut, cfg.acFreqHz);
       if (d.running) { busMean = d.busMeanV; busRipple = d.rippleVpp; }
     }
-    return {
+    const snapshot: Snapshot = {
       timeS: this.timeS, steps: this.steps,
       inputs: { powerOn: inp.powerOn, mode: inp.mode, setpointV: inp.setpointV, connection: conn.kind, reversed: conn.kind === 'load' ? conn.reversed : false },
       status,
@@ -396,9 +410,11 @@ export class Engine {
         sVA: ac ? (live ? R.sVA : 0) : null, qVAr: ac ? (live ? R.qVAr : 0) : null, powerFactor: ac && live ? R.pf : null,
         freqHz: ac ? cfg.acFreqHz : 0, polarity: ac ? 'n/a' : '+/-', prospectiveCurrentA: prospective, currentLimited: live && R.currentLimited,
       },
-      load: conn.kind === 'load' ? { label: conn.load.label, dataSource: conn.load.dataSource, health: this.health, op: R.loadOp ?? ZERO_OP, busMeanV: busMean, busRippleVpp: busRipple } : null,
+      load: conn.kind === 'load' ? { label: conn.load.label, dataSource: conn.load.dataSource, health: { ...this.health, reasons: [...this.health.reasons] }, op: { ...(R.loadOp ?? ZERO_OP) }, busMeanV: busMean, busRippleVpp: busRipple } : null,
       ledger: led,
     };
+    // The snapshot is handed to callers: freeze it (deeply) so it cannot be used to reach internal state.
+    return deepFreeze(snapshot);
   }
 
   private ledgerNow(): Ledger {

@@ -78,10 +78,10 @@ export interface DcModuleLoad extends LoadBase {
 }
 export type Load = LinearLoad | AcSupplyLoad | DcMotorLoad | DcModuleLoad;
 
-export const NO_RATINGS: LoadRatings = {
+export const NO_RATINGS: LoadRatings = Object.freeze({
   input: 'ac-or-dc', vRatedMinV: null, vRatedMaxV: null, vAbsMaxV: null, freqMinHz: null, freqMaxHz: null, polarized: false,
   vReverseMaxV: null, ratedCurrentA: null, ratedPowerW: null, overcurrentTripA: null, overvoltageTripV: null, tMaxC: null, tWarnC: null,
-};
+});
 
 // ------------------------------------------------------------------ DC behaviour
 
@@ -309,28 +309,29 @@ export function stepLoadHealth(load: Load, health: LoadHealth, drive: LoadDrive 
 
 // ------------------------------------------------------------------ device-class factories (illustrative fixtures)
 
-const FIXTURE_THERMAL: LoadThermal = { cthJPerK: 50, rthKPerW: 2 };
+// Shared defaults are frozen and factories COPY them, so mutating one load can never alter another.
+const FIXTURE_THERMAL: LoadThermal = Object.freeze({ cthJPerK: 50, rthKPerW: 2 });
 import { validateLoad } from './validate.ts';
 const checked = <T extends Load>(l: T): T => { validateLoad(l); return l; };
 
 export function resistiveLoad(ohms: number, ratings: Partial<LoadRatings> = {}, thermal: LoadThermal = FIXTURE_THERMAL, dataSource: DataSource = 'illustrative-fixture'): LinearLoad {
-  return checked({ kind: 'resistive', label: `Resistive ${ohms} Ω`, dataSource, ratings: { ...NO_RATINGS, ...ratings }, thermal, rlc: { ohms, henries: 0, farads: null }, dcRohm: ohms });
+  return checked({ kind: 'resistive', label: `Resistive ${ohms} Ω`, dataSource, ratings: { ...NO_RATINGS, ...ratings }, thermal: { ...thermal }, rlc: { ohms, henries: 0, farads: null }, dcRohm: ohms });
 }
 export function inductiveLoad(ohms: number, henries: number, ratings: Partial<LoadRatings> = {}, thermal: LoadThermal = FIXTURE_THERMAL, dataSource: DataSource = 'illustrative-fixture'): LinearLoad {
-  return checked({ kind: 'inductive', label: `Inductive ${ohms} Ω + ${henries} H`, dataSource, ratings: { ...NO_RATINGS, ...ratings }, thermal, rlc: { ohms, henries, farads: null }, dcRohm: ohms });
+  return checked({ kind: 'inductive', label: `Inductive ${ohms} Ω + ${henries} H`, dataSource, ratings: { ...NO_RATINGS, ...ratings }, thermal: { ...thermal }, rlc: { ohms, henries, farads: null }, dcRohm: ohms });
 }
 export function capacitiveLoad(farads: number, esrOhm: number, ratings: Partial<LoadRatings> = {}, thermal: LoadThermal = FIXTURE_THERMAL, dataSource: DataSource = 'illustrative-fixture'): LinearLoad {
-  return checked({ kind: 'capacitive', label: `Capacitive ${farads} F`, dataSource, ratings: { ...NO_RATINGS, ...ratings }, thermal, rlc: { ohms: esrOhm, henries: 0, farads }, dcRohm: null });
+  return checked({ kind: 'capacitive', label: `Capacitive ${farads} F`, dataSource, ratings: { ...NO_RATINGS, ...ratings }, thermal: { ...thermal }, rlc: { ohms: esrOhm, henries: 0, farads }, dcRohm: null });
 }
 export function rlcLoad(ohms: number, henries: number, farads: number, ratings: Partial<LoadRatings> = {}, thermal: LoadThermal = FIXTURE_THERMAL, dataSource: DataSource = 'illustrative-fixture'): LinearLoad {
-  return checked({ kind: 'rlc', label: `Series RLC ${ohms} Ω / ${henries} H / ${farads} F`, dataSource, ratings: { ...NO_RATINGS, ...ratings }, thermal, rlc: { ohms, henries, farads }, dcRohm: null });
+  return checked({ kind: 'rlc', label: `Series RLC ${ohms} Ω / ${henries} H / ${farads} F`, dataSource, ratings: { ...NO_RATINGS, ...ratings }, thermal: { ...thermal }, rlc: { ohms, henries, farads }, dcRohm: null });
 }
 export function acInputSupplyLoad(p: { pOutW: number; efficiency: number; busCapF: number; busMinV?: number }, ratings: Partial<LoadRatings> = {}, thermal: LoadThermal = FIXTURE_THERMAL, dataSource: DataSource = 'illustrative-fixture'): AcSupplyLoad {
-  return checked({ kind: 'ac-input-supply', label: `AC-input supply ${p.pOutW} W`, dataSource, ratings: { ...NO_RATINGS, input: 'ac-or-dc', ...ratings }, thermal, busCapF: p.busCapF, pOutW: p.pOutW, efficiency: p.efficiency, busMinV: p.busMinV ?? 90, vfV: 0.9, rDiodeOhm: 0.05, sourceRohm: 1 });
+  return checked({ kind: 'ac-input-supply', label: `AC-input supply ${p.pOutW} W`, dataSource, ratings: { ...NO_RATINGS, input: 'ac-or-dc', ...ratings }, thermal: { ...thermal }, busCapF: p.busCapF, pOutW: p.pOutW, efficiency: p.efficiency, busMinV: p.busMinV ?? 90, vfV: 0.9, rDiodeOhm: 0.05, sourceRohm: 1 });
 }
 export function dcMotorLoad(p: { rArmOhm: number; kVsPerRad: number; loadTorqueNm: number; viscousNmsPerRad: number }, ratings: Partial<LoadRatings> = {}, thermal: LoadThermal = FIXTURE_THERMAL, dataSource: DataSource = 'illustrative-fixture'): DcMotorLoad {
-  return checked({ kind: 'dc-motor', label: 'DC motor', dataSource, ratings: { ...NO_RATINGS, input: 'dc', ...ratings }, thermal, ...p });
+  return checked({ kind: 'dc-motor', label: 'DC motor', dataSource, ratings: { ...NO_RATINGS, input: 'dc', ...ratings }, thermal: { ...thermal }, ...p });
 }
 export function dcModuleLoad(p: { vForwardV: number; rDynOhm: number }, ratings: Partial<LoadRatings> = {}, thermal: LoadThermal = FIXTURE_THERMAL, dataSource: DataSource = 'illustrative-fixture'): DcModuleLoad {
-  return checked({ kind: 'dc-module', label: 'Polarized DC module', dataSource, ratings: { ...NO_RATINGS, input: 'dc', polarized: true, ...ratings }, thermal, ...p });
+  return checked({ kind: 'dc-module', label: 'Polarized DC module', dataSource, ratings: { ...NO_RATINGS, input: 'dc', polarized: true, ...ratings }, thermal: { ...thermal }, ...p });
 }

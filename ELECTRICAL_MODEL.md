@@ -90,7 +90,7 @@ Iout = 0.241 A, Iin = 8.99 A, battery terminal 12.25 V (OCV 12.60 V → 0.35 V s
 and after 600 s the SOC falls 90.0 % → 79.1 % (remaining 153.3 → 134.1 Wh; 16.67 Wh went to the load, the rest to losses).
 With turns ratio 1 (single-stage boost) the same request is a truthful **duty-limit**: the output collapses instead of showing 415 V.
 
-### What “415 V AC” means here
+### What “415 V AC” means here (single-phase, two-wire)
 The machine has two output conductors (Lead A red, Lead B black), so AC is **single-phase, two-wire**. The set-point is the **RMS voltage
 between the two leads**; at 415 V the peak is √2 × 415 = 586.9 V and the default frequency is 50 Hz. It is **not** a three-phase
 line-to-line voltage and not a statement about household supply (IEC 60038 lists e.g. 230 V and 230/400 V). The 0–415 V range is kept as built.
@@ -143,6 +143,12 @@ load health, previous snapshot). `Engine.attachLoad()` and `window.voltaLab.atta
 OCV values finite, positive and non-decreasing; resistance factors finite and positive. The shipped profiles were checked and needed no value changes.
 **Immutability**: the engine deep-copies and freezes its `EngineConfig`; `packModel()` copies the pack config and caches by *values* (not object identity); the shared chemistry profiles are frozen.
 Changing the caller's config object after construction cannot change a running engine. Tests: `src/sim/phase1.test.ts`.
+**Inputs, loads and snapshots are protected against external mutation** (`src/sim/phase2.test.ts`): an attached load is validated and then stored as a private deep-frozen clone (re-sending the
+same unchanged object does not reset its health; a mutated one is re-validated and rejected if invalid); `getInputs()` returns a frozen object; every `snapshot()` is built from copies and deeply frozen,
+so it cannot be used to reach internal state, and earlier snapshots never change as the simulation advances. The load factories copy their shared defaults (thermal pair, ratings), which are frozen.
+Cost: one `structuredClone` when a new load is attached and one frozen snapshot object per physics step (a few dozen small objects); nothing is cloned per frame otherwise.
+The browser UI text "Output stage is …" is derived from the snapshot (`outputStageDescription()` in `src/sim/status.ts`): disabled / running / running at the current limit / battery empty / protective shutdown / converter thermal shutdown.
+`window.voltaLab.engine` still exposes the Engine object itself for tests and the console: its TypeScript `private` members are not hard-private at run time. The simulation inputs and results above are protected; the engine object is not a security boundary.
 
 ### Energy ledger: sign conventions and tolerances
 Discharge is positive. Per step (exact, floating-point): `chemical = terminal + R0 loss + R1 loss + ΔE(C1)`; and
@@ -179,7 +185,13 @@ all values come from the equations above.
 
 ---
 
-## Legacy model (`src/electrical.ts`) — superseded in the app, kept as reference
+## HISTORICAL — Legacy model (`src/electrical.ts`)
+
+> **⚠ HISTORICAL / NOT USED BY THE APP.** Everything below this line describes the *old, superseded* single-Thevenin-source model that is
+> kept in the repository only as a reference and for its own unit tests (`src/electrical.test.ts`). The app **does not** use it. The active
+> architecture is the engine described above: `Battery → DC-DC converter → DC output` or
+> `Battery → DC-DC converter → H-bridge inverter → single-phase AC output`. Do not read the formulas, limits or "modes" below as how
+> Volta Lab behaves today.
 
 All calculations in the first version lived in `src/electrical.ts`. It is no longer imported by `main.ts`
 but remains tested (`src/electrical.test.ts`).

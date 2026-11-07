@@ -39,6 +39,10 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
   // Tip hit centres (world): Lead A (-2.68,-1.09,1.32) grip is +0.17 along x; Lead B (2.68,…) grip is −0.17.
   const gripA = (vw = 1440, vh = 900) => project([-2.68 + 0.17, -1.09, 1.32], vw, vh);
   const gripB = (vw = 1440, vh = 900) => project([2.68 - 0.17, -1.09, 1.32], vw, vh);
+  const fovFor = (vw, vh) => { const aspect = vw / vh; return aspect >= 1.45 ? BASE_FOV : Math.min(66, (2 * Math.atan(Math.tan((BASE_FOV / 2) * Math.PI / 180) * 1.45 / aspect)) * 180 / Math.PI); };
+  // The app pulls the rest position of the cable tips in on narrow screens so both stay visible (see updateTipRestX in main.ts).
+  const restX = (vw, vh) => vw / vh >= 1.45 ? 2.68 : Math.min(2.68, Math.max(0.9, Math.tan(fovFor(vw, vh) * Math.PI / 360) * (vw / vh) * Math.hypot(0.2, 0.45 + 1.09, 7.5 - 1.32) - 0.3));
+  const gripAt = (vw, vh) => [project([-restX(vw, vh) + 0.17, -1.09, 1.32], vw, vh), project([restX(vw, vh) - 0.17, -1.09, 1.32], vw, vh)];
   const cam = async () => page.evaluate(() => ({ x: +document.getElementById('coordX').textContent, y: +document.getElementById('coordY').textContent, z: +document.getElementById('coordZ').textContent }));
   const dist = (c, t = DEFAULT_TARGET) => Math.hypot(c.x - t[0], c.y - t[1], c.z - t[2]);
   const moved = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
@@ -171,8 +175,14 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
   await page.mouse.move(A.x, A.y); await page.mouse.down(); await page.mouse.move(A.x + 60, A.y - 40, { steps: 8 }); await page.mouse.move(A.x + 120, A.y - 70, { steps: 8 }); await page.mouse.up(); await settle(500);
   ok('cable 7: dragging a tip does not select it / trigger click-to-connect', (await selected()) === '' && (await conn()) === 'open');
   ok('cable 7: the camera does not rotate while a cable is dragged', moved(camBefore, await cam()) < 0.005, `moved ${moved(camBefore, await cam()).toFixed(4)}`);
-  const movedA = gripA(); const A2 = await page.screenshot({ clip: { x: A.x - 5, y: A.y - 5, width: 10, height: 10 } }); // old spot no longer holds the tip
-  ok('cable 7: the dragged tip really left its old position (its highlight ring is no longer there)', !!A2 && true);
+  // Proof of movement without pixel comparison: a press at the OLD grip position must no longer hit Lead A, while a press at the
+  // NEW position (old + the drag delta; the grab offset keeps the tip under the pointer) must select it. Fails if the tip did not move.
+  await click(A);
+  ok('cable 7: after the drag, the OLD grip position no longer selects Lead A (the tip left it)', (await selected()) === '', `selected "${await selected()}"`);
+  const A_new = { x: A.x + 120, y: A.y - 70 };
+  await click(A_new);
+  ok('cable 7: after the drag, the NEW position (old + drag delta) selects Lead A (the tip really moved there)', (await selected()) === 'A', `selected "${await selected()}"`);
+  await click(A_new); // deselect
   // drag A until it touches B: engine must agree with the visible contact
   const targetPointer = project([2.68 - 0.34, -1.09, 1.32], 1440, 900); // pointer world x = B.pos.x − 0.34 → exposed ends 0.05 apart
   await page.keyboard.press('s'); await waitSnap((x) => x.inputs.connection === 'open');
@@ -189,6 +199,26 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
   ok('cable 9: SEPARATE button still works', (await conn()) === 'open');
   await page.click('#panelToggle');
   await settle(600);
+
+  // ---------------------- Issue A: the persistent "Lead X selected" hint must never outlive the selection ----------------------
+  await resetView();
+  const wireHintState = () => page.evaluate(() => { const h = document.getElementById('wireHint'); return { shown: h.classList.contains('show'), text: h.textContent }; });
+  const noStale = async (label) => { await page.waitForTimeout(200); const h = await wireHintState(); ok(`hint: ${label} — no stale "selected" hint`, (await selected()) === '' && !(h.shown && /selected —/.test(h.text)), JSON.stringify(h)); };
+  const [HA, HB] = gripAt(1440, 900);
+  await click(HA); const h1 = await wireHintState();
+  ok('hint: selecting Lead A shows "Lead A selected — click Lead B …"', (await selected()) === 'A' && h1.shown && /Lead A selected — click Lead B/.test(h1.text), JSON.stringify(h1));
+  await page.keyboard.press('t'); await waitSnap((x) => x.inputs.connection === 'short'); await noStale('T key clears the selection');
+  await page.keyboard.press('s'); await waitSnap((x) => x.inputs.connection === 'open');
+  await click(HB); ok('hint: selecting Lead B shows its instruction', (await selected()) === 'B' && /Lead B selected — click Lead A/.test((await wireHintState()).text));
+  await page.keyboard.press('s'); await noStale('S key clears the selection');
+  await click(HA); await page.click('#panelToggle'); await page.click('#touchWiresBtn'); await waitSnap((x) => x.inputs.connection === 'short'); await noStale('TOUCH WIRE ENDS button');
+  await page.click('#separateWiresBtn'); await waitSnap((x) => x.inputs.connection === 'open'); await page.click('#panelToggle'); await page.waitForTimeout(400);
+  await click(HA); await page.click('#panelToggle'); await page.click('#separateWiresBtn'); await page.click('#panelToggle'); await noStale('SEPARATE button');
+  await click(HA); await click(HA); const hc = await wireHintState();
+  ok('hint: clicking the selected lead again cancels (message says "deselected", never "selected —")', (await selected()) === '' && !/selected —/.test(hc.text) && /deselected/.test(hc.text), JSON.stringify(hc));
+  await click(HA); await click(HB); await waitSnap((x) => x.inputs.connection === 'short'); await noStale('two-click connect');
+  ok('hint: two-click connect still works and says so', /connected/i.test((await wireHintState()).text));
+  await page.keyboard.press('s'); await waitSnap((x) => x.inputs.connection === 'open');
 
   // ---------------------- wire drag / pointer cancel must never override the selected camera mode ----------------------
   await resetView();
@@ -275,9 +305,12 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
   ok('sustained short trips; output zero; reason given', s.protection.trip === 'overcurrent' && s.output.currentA === 0 && !!s.protection.message);
   await page.waitForTimeout(300);
   ok('HUD shows PROTECTED SHUTDOWN', (await text('connectionPill')).includes('PROTECTED'));
+  ok('power description says protective shutdown (never "running") while the engine is tripped', /Protective shutdown/.test(await text('powerDescription')) && !/is running/.test(await text('powerDescription')), await text('powerDescription'));
   await page.keyboard.press('s'); await waitSnap((x) => x.inputs.connection === 'open');
   await page.click('#powerBtn'); await waitSnap((x) => x.status === 'off'); await page.click('#powerBtn'); await waitSnap((x) => x.status === 'running');
   ok('power cycle clears the trip', (await snap()).protection.trip === null);
+  await page.waitForTimeout(300);
+  ok('power description says "Output stage is running" again once the engine really runs', /Output stage is running/.test(await text('powerDescription')), await text('powerDescription'));
 
   // ---- thermal trip and recovery (separate engine instance with a low shutdown threshold; same code as the machine)
   const th = await page.evaluate(() => {
@@ -291,6 +324,95 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
   });
   ok('thermal shutdown snapshot is consistent (0 V / 0 A / 0 W, battery current 0)', th.hit.status === 'tripped' && th.hit.output.voltage === 0 && th.hit.output.currentA === 0 && th.hit.battery.currentA === 0 && /thermal/i.test(th.hit.protection.message));
   ok('thermal restart after cooling below restart temperature (hysteresis) with live readings', !th.back.protection.converterShutdown && th.back.converter.tempC <= 30 && th.back.output.voltage > 199);
+
+  // ---- Touch emulation at a 390 × 844 phone viewport (Chromium touch events via CDP: real pointer events with pointerType "touch").
+  // This is AUTOMATED EMULATION in desktop Chromium with software WebGL — it is NOT a physical-device test.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, deviceScaleFactor: 1 });
+    const tp = await ctx.newPage(); const cdp = await ctx.newCDPSession(tp);
+    tp.on('pageerror', (e) => errors.push('pageerror(touch): ' + e.message));
+    tp.on('console', (m) => { if (m.type() === 'error') errors.push('console(touch): ' + m.text()); });
+    await tp.goto(BASE); await tp.waitForFunction(() => !!window.voltaLab, null, { timeout: 30000 }); await tp.waitForTimeout(2500);
+    const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map((q, i) => ({ x: q.x, y: q.y, id: i })) });
+    const tap = async (q) => { await touch('touchStart', [q]); await touch('touchEnd', []); };
+    const sel = () => tp.evaluate(() => document.getElementById('sceneCanvas').dataset.wireSelected);
+    const tconn = () => tp.evaluate(() => window.voltaLab.snapshot().inputs.connection);
+    const tcam = () => tp.evaluate(() => ({ x: +document.getElementById('coordX').textContent, y: +document.getElementById('coordY').textContent, z: +document.getElementById('coordZ').textContent }));
+    const tmode = () => tp.evaluate(() => document.getElementById('sceneCanvas').dataset.cameraMode);
+    const thint = () => tp.evaluate(() => { const h = document.getElementById('wireHint'); return { shown: h.classList.contains('show'), text: h.textContent }; });
+    const twait = (fn) => tp.waitForFunction(`(${fn.toString()})(window.voltaLab.snapshot())`, null, { timeout: 30000 });
+    const [TA, TB] = gripAt(390, 844);
+    ok('touch 390: both cable tips are inside the visible viewport (reachable by a finger)', TA.x > 25 && TA.x < 365 && TB.x > 25 && TB.x < 365 && TA.y > 0 && TA.y < 844, `A.x=${TA.x.toFixed(0)} B.x=${TB.x.toFixed(0)}`);
+    await tap(TA); await tp.waitForTimeout(300);
+    ok('touch 390: tapping Lead A selects it and shows the instruction', (await sel()) === 'A' && /Lead A selected/.test((await thint()).text));
+    await tap(TB); await twait((x) => x.inputs.connection === 'short');
+    ok('touch 390: tapping Lead B then connects the wires (engine = short)', (await tconn()) === 'short' && (await sel()) === '');
+    await tp.keyboard.press('s'); await twait((x) => x.inputs.connection === 'open');
+    await tap(TB); await tap(TA); await twait((x) => x.inputs.connection === 'short');
+    ok('touch 390: reverse order (B then A) also connects', (await tconn()) === 'short');
+    await tp.keyboard.press('s'); await twait((x) => x.inputs.connection === 'open');
+    await tap(TA); await tap(TA); await tp.waitForTimeout(200);
+    ok('touch 390: tapping the selected lead again cancels and clears the hint', (await sel()) === '' && !/selected —/.test((await thint()).text));
+    // wobble below the touch threshold (10 px) is still a tap
+    await touch('touchStart', [TA]); await touch('touchMove', [{ x: TA.x + 6, y: TA.y + 4 }]); await touch('touchEnd', []); await tp.waitForTimeout(250);
+    ok('touch 390: a 7 px finger wobble is still a tap (selects, does not drag)', (await sel()) === 'A');
+    await tap(TA);
+    // deliberate drag
+    const camB = await tcam();
+    await touch('touchStart', [TA]); for (let i = 1; i <= 10; i++) await touch('touchMove', [{ x: TA.x + 8 * i, y: TA.y - 5 * i }]); await touch('touchEnd', []); await tp.waitForTimeout(400);
+    ok('touch 390: dragging a tip does not select it or connect, and the camera does not rotate', (await sel()) === '' && (await tconn()) === 'open' && moved(camB, await tcam()) < 0.005);
+    await tap(TA); await tp.waitForTimeout(250);
+    ok('touch 390: after the drag, the OLD grip position no longer selects Lead A', (await sel()) === '');
+    await tap({ x: TA.x + 80, y: TA.y - 50 }); await tp.waitForTimeout(250);
+    ok('touch 390: after the drag, the NEW position selects Lead A (the tip really moved with the finger)', (await sel()) === 'A');
+    await tap({ x: TA.x + 80, y: TA.y - 50 });
+    await tp.keyboard.press('s'); await tp.waitForTimeout(300);
+
+    // camera modes × gestures: one-finger rotate, two-finger pinch (zoom), two-finger parallel drag (pan)
+    const EMPTY = { x: 300, y: 200 }, MID = { x: 195, y: 200 };
+    const gestures = {
+      rotate: async () => { await touch('touchStart', [EMPTY]); for (let i = 1; i <= 10; i++) await touch('touchMove', [{ x: EMPTY.x - 14 * i, y: EMPTY.y + 3 * i }]); await touch('touchEnd', []); },
+      pinch: async () => { await touch('touchStart', [{ x: MID.x - 30, y: MID.y }, { x: MID.x + 30, y: MID.y }]); for (let i = 1; i <= 10; i++) await touch('touchMove', [{ x: MID.x - 30 - 8 * i, y: MID.y }, { x: MID.x + 30 + 8 * i, y: MID.y }]); await touch('touchEnd', []); },
+      pan: async () => { await touch('touchStart', [{ x: MID.x - 30, y: MID.y }, { x: MID.x + 30, y: MID.y }]); for (let i = 1; i <= 10; i++) await touch('touchMove', [{ x: MID.x - 30 + 8 * i, y: MID.y + 6 * i }, { x: MID.x + 30 + 8 * i, y: MID.y + 6 * i }]); await touch('touchEnd', []); },
+    };
+    const expectations = { free: { rotate: 1, pinch: 1, pan: 1 }, locked: { rotate: 0, pinch: 0, pan: 0 }, 'zoom-only': { rotate: 0, pinch: 1, pan: 0 }, 'rotate-only': { rotate: 1, pinch: 'rot', pan: 'rot' } };
+    // 'rot': OrbitControls (r186) keeps its one-finger ROTATE state when a 2nd finger lands while zoom AND pan are disabled, so a two-finger
+    // gesture in ROTATE ONLY orbits like one finger. That is allowed there (rotation is on); what must hold is: NO zoom and NO pan (distance to target unchanged).
+    const tdist = (c) => Math.hypot(c.x - DEFAULT_TARGET[0], c.y - DEFAULT_TARGET[1], c.z - DEFAULT_TARGET[2]);
+    for (const m of ['free', 'locked', 'zoom-only', 'rotate-only']) {
+      while ((await tmode()) !== m) await tp.click('#cameraModeBtn');
+      for (const g of ['rotate', 'pinch', 'pan']) {
+        await tp.keyboard.press('r'); await tp.waitForTimeout(1200); // reset view; the camera MODE must survive this
+        const c0 = await tcam(); await gestures[g]();
+        let c1 = c0; const t0 = Date.now(); const exp = expectations[m][g]; const want = exp === 1;
+        while (Date.now() - t0 < (want ? 30000 : 3500)) { await tp.waitForTimeout(500); c1 = await tcam(); if (want && moved(c0, c1) > 0.1) break; }
+        const d = moved(c0, c1), dd = tdist(c1) - tdist(c0);
+        const good = exp === 'rot' ? Math.abs(dd) < 0.05 : want ? d > 0.1 && (g !== 'rotate' || Math.abs(dd) < 0.05) && (g !== 'pinch' || Math.abs(dd) > 0.3) : d < 0.01;
+        ok(`touch camera [${m.toUpperCase()}] ${g}: ${exp === 'rot' ? 'no zoom / no pan (orbit-only)' : want ? 'works' : 'is disabled'}`, good && (await tmode()) === m, `moved ${d.toFixed(3)}, Δdist ${dd.toFixed(3)}`);
+      }
+    }
+    while ((await tmode()) !== 'free') await tp.click('#cameraModeBtn');
+    await tp.screenshot({ path: `${SHOT}/browser-check-touch-390.png` });
+    await ctx.close();
+  }
+
+  // ---- mouse: PAN restrictions in all four modes (right-button drag = OrbitControls pan; keys stay disabled by the app)
+  {
+    await resetView();
+    while ((await mode()) !== 'free') await page.click('#cameraModeBtn');
+    const wantPan = { free: 1, locked: 0, 'zoom-only': 0, 'rotate-only': 0 };
+    for (const m of ['free', 'locked', 'zoom-only', 'rotate-only']) {
+      while ((await mode()) !== m) await page.click('#cameraModeBtn');
+      await resetView(); await settle(1500);
+      const c0 = await cam();
+      await page.mouse.move(300, 250); await page.mouse.down({ button: 'right' }); await page.mouse.move(420, 300, { steps: 8 }); await page.mouse.up({ button: 'right' });
+      let c1 = c0; const t0 = Date.now();
+      while (Date.now() - t0 < (wantPan[m] ? 30000 : 3000)) { await page.waitForTimeout(500); c1 = await cam(); if (wantPan[m] && moved(c0, c1) > 0.1) break; }
+      ok(`mouse camera [${m.toUpperCase()}] pan (right-button drag): ${wantPan[m] ? 'works' : 'is disabled'}`, wantPan[m] ? moved(c0, c1) > 0.1 : moved(c0, c1) < 0.01, `moved ${moved(c0, c1).toFixed(3)}`);
+    }
+    while ((await mode()) !== 'free') await page.click('#cameraModeBtn');
+    await resetView();
+  }
 
   // ---- empty battery never shows RUNNING (separate engine instance, same code as the machine)
   const emp = await page.evaluate(() => {

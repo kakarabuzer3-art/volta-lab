@@ -4,7 +4,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import './style.css';
 
 import {
-  Engine, MAX_SETPOINT_V, validateLoad, acInputSupplyLoad, capacitiveLoad, dcModuleLoad, dcMotorLoad, inductiveLoad, resistiveLoad, rlcLoad,
+  Engine, MAX_SETPOINT_V, deepFreeze, outputStageDescription, validateLoad, acInputSupplyLoad, capacitiveLoad, dcModuleLoad, dcMotorLoad, inductiveLoad, resistiveLoad, rlcLoad,
 } from './sim/index.ts';
 import type { Connection, Load, Snapshot } from './sim/index.ts';
 
@@ -817,7 +817,6 @@ function setPower(value: boolean) {
   isOn = value;
   powerBtn.setAttribute('aria-checked', String(isOn));
   powerBtn.classList.toggle('is-on', isOn);
-  powerDescription.textContent = isOn ? 'Output stage is running' : 'Output stage is disabled';
   flowText.textContent = isOn ? 'READY' : 'INACTIVE';
   powerFlow.classList.toggle('active', isOn);
   sceneStatusText.textContent = isOn ? 'OUTPUT ENABLED' : 'MACHINE STANDBY';
@@ -836,11 +835,25 @@ function setPower(value: boolean) {
 function touchWires() {
   setTip(0, -0.23, -1.09);
   setTip(1, 0.23, -1.09);
+  tipsAtRest = false;
   clearWireSelection();
 }
+// Rest (separated) position of the tips. On wide screens it is the original ±2.68; on narrow/portrait screens the visible
+// half-width at the tips' depth is smaller, so the rest position is pulled in to keep BOTH tips on screen (otherwise a phone
+// user could not reach them). The machine itself is untouched.
+const TIP_REST_X = 2.68;
+let tipRestX = TIP_REST_X;
+let tipsAtRest = true;
+function updateTipRestX() {
+  const dist = camera.position.distanceTo(new THREE.Vector3(0, -1.09, 1.32)); // default camera → tip plane
+  const halfWidth = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect * dist;
+  // Wide screens (aspect ≥ 1.45, where the original layout was tuned) keep the original position exactly.
+  tipRestX = camera.aspect >= 1.45 ? TIP_REST_X : Math.min(TIP_REST_X, Math.max(0.9, halfWidth - 0.3));
+}
 function separateWires() {
-  setTip(0, -2.68, -1.09);
-  setTip(1, 2.68, -1.09);
+  setTip(0, -tipRestX, -1.09);
+  setTip(1, tipRestX, -1.09);
+  tipsAtRest = true;
   clearWireSelection();
 }
 function resetCamera() {
@@ -866,9 +879,14 @@ function showWireHint(text: string, persistent: boolean) {
   if (!persistent) hintTimer = window.setTimeout(() => wireHint.classList.remove('show'), 2800);
   announce(text);
 }
+function hideWireHint() {
+  window.clearTimeout(hintTimer);
+  wireHint.classList.remove('show');
+}
 function clearWireSelection() {
   selectedTip = -1;
   canvas.dataset.wireSelected = '';
+  hideWireHint(); // never leave "Lead A selected…" on screen when nothing is selected (T / S / buttons / connect / cancel)
 }
 function selectTip(i: number) {
   selectedTip = i;
@@ -951,7 +969,7 @@ canvas.addEventListener('pointerdown', (event) => {
 }, { capture: true });
 canvas.addEventListener('pointermove', (event) => {
   if (activeTip >= 0) {
-    if (!tipDragging && Math.hypot(event.clientX - downX, event.clientY - downY) > dragThreshold) tipDragging = true;
+    if (!tipDragging && Math.hypot(event.clientX - downX, event.clientY - downY) > dragThreshold) { tipDragging = true; tipsAtRest = false; }
     if (tipDragging) {
       setMouse(event); raycaster.setFromCamera(mouse, camera);
       if (raycaster.ray.intersectPlane(dragPlane, dragPoint)) setTip(activeTip, dragPoint.x + grabOffset.x, dragPoint.y + grabOffset.y);
@@ -1057,6 +1075,9 @@ function resize() {
     ? BASE_FOV
     : Math.min(66, THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(BASE_FOV / 2)) * minAspect / camera.aspect)));
   camera.updateProjectionMatrix();
+  const before = tipRestX;
+  updateTipRestX();
+  if (tipsAtRest && Math.abs(tipRestX - before) > 1e-6) { setTip(0, -tipRestX, -1.09); setTip(1, tipRestX, -1.09); } // keep untouched tips on screen
 }
 new ResizeObserver(resize).observe(sceneWrap);
 window.addEventListener('resize', resize);
@@ -1126,6 +1147,7 @@ function animate() {
   if (elapsed - lastHudUpdate > 0.065) {
     lastHudUpdate = elapsed;
     const o = snap.output;
+    powerDescription.textContent = outputStageDescription(snap); // from the snapshot, never from the UI's own switch state
     const voltage = o.voltage;
     metricVoltage.textContent = voltage.toFixed(1);
     metricCurrent.textContent = o.currentA.toFixed(2);
@@ -1202,7 +1224,7 @@ interface VoltaLabApi {
   attachLoad: (load, reversed = false) => {
     validateLoad(load);
     if (typeof reversed !== 'boolean') throw new RangeError(`reversed must be a boolean; got ${String(reversed)}`);
-    attachedLoad = { kind: 'load', load, reversed }; lastSyncKey = '';
+    attachedLoad = { kind: 'load', load: deepFreeze(structuredClone(load)), reversed }; lastSyncKey = ''; // own frozen copy: later mutation of the caller's object cannot bypass validation
   },
   detachLoad: () => { attachedLoad = null; lastSyncKey = ''; },
   loads: { resistiveLoad, inductiveLoad, capacitiveLoad, rlcLoad, acInputSupplyLoad, dcMotorLoad, dcModuleLoad },

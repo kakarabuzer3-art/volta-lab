@@ -34,13 +34,20 @@ function dcRig(soc: number, load: Load | null = resistiveLoad(40)): Engine {
   if (load) e.attachLoad(load);
   return e;
 }
-/** Fraction of the first step the battery can actually supply, from Coulomb counting only. */
+/**
+ * Estimate of the fraction of the first step the battery can supply: remaining charge Q = SOC·Ah·3600 (A·s) divided by the charge the
+ * step would draw at the START-of-step current. This is an independent Coulomb-counting ESTIMATE, not the engine's exact value: the
+ * engine finds its active time `a` as the fixed point of I(a)·a = Q, where I(a) is the battery current of the operating point
+ * re-solved with the battery's Thevenin source (E_eff, R_eff) averaged over the SHORTENED interval `a` (the relaxing RC branch averages
+ * differently over a shorter time). The two agree to a few 1e-8 (relative), which is why timer/energy/thermal checks below use tolerances
+ * of 1e-7 s / 1e-4 / 1e-3 of the effect and not exact equality; the effects being tested are ≥ 5 % of the step.
+ */
 function activeFraction(e: Engine): number {
   const s = e.snapshot();
   const chargeAs = s.battery.socFrac * s.battery.capacityAh * 3600;
   return Math.min(1, chargeAs / (s.battery.currentA * DT));
 }
-/** Find an initial SOC for which the 1st step is active for ≈ `target` of its length (bisection on Coulomb counting). */
+/** Find an initial SOC for which the 1st step is active for ≈ `target` of its length (bisection on the Coulomb-counting estimate above). */
 function socForFraction(target: number, load: () => Load | null = () => resistiveLoad(40)): number {
   let lo = 1e-9, hi = 0.01;
   for (let k = 0; k < 80; k++) {
@@ -69,8 +76,9 @@ for (const target of [1, 0.5, 0.05, 0.95]) {
     // converter: heated for activeS, then cooled with zero dissipation for idleS
     let expC = thermal(amb, convHeat, amb, cfg.converter.cthJPerK, cfg.converter.rthKPerW, activeS);
     expC = thermal(expC, 0, amb, cfg.converter.cthJPerK, cfg.converter.rthKPerW, idleS);
-    // tolerance 0.1 % of the temperature RISE: the engine re-solves the operating point for the shortened interval, so its heat
-    // differs from the start-of-step value by a few 1e-6 relative; wrong timing would be off by (1−f) of the rise (≥ 5 %).
+    // Expected value = closed-form Newton cooling: heat for activeS at the converter's loss, then 0 W for idleS. `convHeat` is read at the
+    // START of the step; the engine re-solves the operating point for the shortened interval (fixed point, see activeFraction), so its
+    // actual heat differs by a few 1e-6 relative. Tolerance = 0.1 % of the temperature RISE; wrong timing would be off by (1−f) of it (≥ 5 %).
     close(after.converter.tempC, expC, 1e-3 * Math.max(expC - amb, 1e-9), 'converter temperature');
     // load: same, using the fixture load's own thermal pair
     let expL = thermal(amb, loadHeat, amb, LOAD_THERMAL.cthJPerK, LOAD_THERMAL.rthKPerW, activeS);
