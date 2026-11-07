@@ -1204,6 +1204,7 @@ function animate() {
   $('coordX').textContent = pos.x.toFixed(2);
   $('coordY').textContent = pos.y.toFixed(2);
   $('coordZ').textContent = pos.z.toFixed(2);
+  canvas.dataset.cameraTarget = `${controls.target.x.toFixed(3)},${controls.target.y.toFixed(3)},${controls.target.z.toFixed(3)}`; // read-only view of the orbit target (used by the browser check)
   renderer.render(scene, camera);
 }
 animate();

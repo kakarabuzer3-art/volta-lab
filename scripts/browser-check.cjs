@@ -375,20 +375,47 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
       pinch: async () => { await touch('touchStart', [{ x: MID.x - 30, y: MID.y }, { x: MID.x + 30, y: MID.y }]); for (let i = 1; i <= 10; i++) await touch('touchMove', [{ x: MID.x - 30 - 8 * i, y: MID.y }, { x: MID.x + 30 + 8 * i, y: MID.y }]); await touch('touchEnd', []); },
       pan: async () => { await touch('touchStart', [{ x: MID.x - 30, y: MID.y }, { x: MID.x + 30, y: MID.y }]); for (let i = 1; i <= 10; i++) await touch('touchMove', [{ x: MID.x - 30 + 8 * i, y: MID.y + 6 * i }, { x: MID.x + 30 + 8 * i, y: MID.y + 6 * i }]); await touch('touchEnd', []); },
     };
-    const expectations = { free: { rotate: 1, pinch: 1, pan: 1 }, locked: { rotate: 0, pinch: 0, pan: 0 }, 'zoom-only': { rotate: 0, pinch: 1, pan: 0 }, 'rotate-only': { rotate: 1, pinch: 'rot', pan: 'rot' } };
-    // 'rot': OrbitControls (r186) keeps its one-finger ROTATE state when a 2nd finger lands while zoom AND pan are disabled, so a two-finger
-    // gesture in ROTATE ONLY orbits like one finger. That is allowed there (rotation is on); what must hold is: NO zoom and NO pan (distance to target unchanged).
-    const tdist = (c) => Math.hypot(c.x - DEFAULT_TARGET[0], c.y - DEFAULT_TARGET[1], c.z - DEFAULT_TARGET[2]);
+    // Camera state is read from two READ-ONLY views the app already renders: the position HUD (coordX/Y/Z) and `data-camera-target`
+    // on the canvas (a plain string, written by the HUD loop; nothing can be set through it).
+    const tstate = () => tp.evaluate(() => {
+      const c = document.getElementById('sceneCanvas'), n = (id) => +document.getElementById(id).textContent;
+      const t = c.dataset.cameraTarget.split(',').map(Number);
+      return { p: [n('coordX'), n('coordY'), n('coordZ')], t };
+    });
+    const vsub = (a, b) => a.map((v, i) => v - b[i]), vlen = (a) => Math.hypot(...a);
+    // Classify what a gesture did, using the REAL orbit target: orbit = direction from the target changed while the distance and the
+    // target stayed; zoom = distance changed, direction and target stayed; pan = target moved, distance and direction stayed.
+    const classify = (s0, s1) => {
+      const r0 = vsub(s0.p, s0.t), r1 = vsub(s1.p, s1.t);
+      const dDist = vlen(r1) - vlen(r0), tMove = vlen(vsub(s1.t, s0.t)), pMove = vlen(vsub(s1.p, s0.p));
+      const cos = (r0[0] * r1[0] + r0[1] * r1[1] + r0[2] * r1[2]) / (vlen(r0) * vlen(r1)), angle = Math.acos(Math.min(1, Math.max(-1, cos)));
+      let kind = 'other';
+      if (pMove < 0.01 && tMove < 0.01) kind = 'none';
+      else if (tMove < 0.02 && Math.abs(dDist) < 0.05 && angle > 0.05) kind = 'orbit';
+      else if (tMove < 0.02 && Math.abs(dDist) > 0.3 && angle < 0.02) kind = 'zoom';
+      else if (tMove > 0.1 && Math.abs(dDist) < 0.05 && angle < 0.02) kind = 'pan';
+      return { kind, detail: `Δpos ${pMove.toFixed(3)}, Δtarget ${tMove.toFixed(3)}, Δdist ${dDist.toFixed(3)}, angle ${angle.toFixed(3)} rad` };
+    };
+    // Expected outcome per mode and gesture. In ROTATE ONLY the two-finger gestures ORBIT: OrbitControls (the installed three.js r186,
+    // `onTouchStart` case 2: `if (enableZoom === false && enablePan === false) return;` — it returns WITHOUT leaving the state set by the first
+    // finger) keeps TOUCH_ROTATE, so the first finger keeps orbiting. This is asserted as the actual behaviour of the installed version, together with
+    // "no zoom, no pan, same distance, same target"; a different three.js version may behave differently and this check would then flag it.
+    const expectations = {
+      free: { rotate: 'orbit', pinch: 'zoom', pan: 'pan' },
+      locked: { rotate: 'none', pinch: 'none', pan: 'none' },
+      'zoom-only': { rotate: 'none', pinch: 'zoom', pan: 'none' },
+      'rotate-only': { rotate: 'orbit', pinch: 'orbit', pan: 'orbit' },
+    };
     for (const m of ['free', 'locked', 'zoom-only', 'rotate-only']) {
       while ((await tmode()) !== m) await tp.click('#cameraModeBtn');
       for (const g of ['rotate', 'pinch', 'pan']) {
         await tp.keyboard.press('r'); await tp.waitForTimeout(1200); // reset view; the camera MODE must survive this
-        const c0 = await tcam(); await gestures[g]();
-        let c1 = c0; const t0 = Date.now(); const exp = expectations[m][g]; const want = exp === 1;
-        while (Date.now() - t0 < (want ? 30000 : 3500)) { await tp.waitForTimeout(500); c1 = await tcam(); if (want && moved(c0, c1) > 0.1) break; }
-        const d = moved(c0, c1), dd = tdist(c1) - tdist(c0);
-        const good = exp === 'rot' ? Math.abs(dd) < 0.05 : want ? d > 0.1 && (g !== 'rotate' || Math.abs(dd) < 0.05) && (g !== 'pinch' || Math.abs(dd) > 0.3) : d < 0.01;
-        ok(`touch camera [${m.toUpperCase()}] ${g}: ${exp === 'rot' ? 'no zoom / no pan (orbit-only)' : want ? 'works' : 'is disabled'}`, good && (await tmode()) === m, `moved ${d.toFixed(3)}, Δdist ${dd.toFixed(3)}`);
+        const s0 = await tstate(); await gestures[g]();
+        const want = expectations[m][g];
+        let s1 = s0, res = classify(s0, s0); const t0 = Date.now();
+        while (Date.now() - t0 < (want === 'none' ? 3500 : 30000)) { await tp.waitForTimeout(600); s1 = await tstate(); res = classify(s0, s1); if (want !== 'none' && res.kind === want) break; }
+        if (want === 'none') { await tp.waitForTimeout(1500); s1 = await tstate(); res = classify(s0, s1); } // also nothing after residual damping
+        ok(`touch camera [${m.toUpperCase()}] ${g}: ${want === 'none' ? 'no camera change' : want + ' (and nothing else)'}`, res.kind === want && (await tmode()) === m, `got ${res.kind}; ${res.detail}`);
       }
     }
     while ((await tmode()) !== 'free') await tp.click('#cameraModeBtn');
