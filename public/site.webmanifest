@@ -1,0 +1,14 @@
+{
+  "name": "Volta Lab: Interactive 3D Power Electronics Simulator",
+  "short_name": "Volta Lab",
+  "description": "Educational 3D battery, DC-DC converter and single-phase inverter simulator. Simulation only.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#070b12",
+  "theme_color": "#070b12",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

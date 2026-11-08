@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AC vs DC Output | Volta Lab</title>
+<meta name="description" content="The difference between DC and single-phase AC output, RMS and peak voltage, and what the AC/DC selector changes inside Volta Lab. Educational, simulation only.">
+<link rel="canonical" href="https://volta-lab-sable.vercel.app/learn/ac-vs-dc-output/">
+<meta name="theme-color" content="#070b12">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Volta Lab">
+<meta property="og:title" content="AC vs DC Output | Volta Lab">
+<meta property="og:description" content="The difference between DC and single-phase AC output, RMS and peak voltage, and what the AC/DC selector changes inside Volta Lab. Educational, simulation only.">
+<meta property="og:url" content="https://volta-lab-sable.vercel.app/learn/ac-vs-dc-output/">
+<meta property="og:image" content="https://volta-lab-sable.vercel.app/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Volta Lab logo and the text Interactive 3D Power Electronics Simulator">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="AC vs DC Output | Volta Lab">
+<meta name="twitter:description" content="The difference between DC and single-phase AC output, RMS and peak voltage, and what the AC/DC selector changes inside Volta Lab. Educational, simulation only.">
+<meta name="twitter:image" content="https://volta-lab-sable.vercel.app/og-image.png">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/learn/learn.css">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Volta Lab","item":"https://volta-lab-sable.vercel.app/"},{"@type":"ListItem","position":2,"name":"Learning Hub","item":"https://volta-lab-sable.vercel.app/learn/"},{"@type":"ListItem","position":3,"name":"AC vs DC Output","item":"https://volta-lab-sable.vercel.app/learn/ac-vs-dc-output/"}]}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"AC vs DC Output","description":"The difference between DC and single-phase AC output, RMS and peak voltage, and what the AC/DC selector changes inside Volta Lab. Educational, simulation only.","url":"https://volta-lab-sable.vercel.app/learn/ac-vs-dc-output/","inLanguage":"en","dateModified":"2026-11-08","isPartOf":{"@type":"WebSite","name":"Volta Lab","url":"https://volta-lab-sable.vercel.app/"}}</script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header"><div class="site-header-inner">
+<a class="site-brand" href="/"><img src="/favicon.svg" alt="" width="32" height="32">Volta Lab</a>
+<nav class="site-nav" aria-label="Primary"><a href="/">Simulator</a><a href="/learn/">Learning Hub</a><a href="/learn/model-limitations-and-safety/">Limitations &amp; safety</a></nav>
+</div></header>
+<main id="main">
+<nav class="crumbs" aria-label="Breadcrumb"><a href="/">Volta Lab</a> / <a href="/learn/">Learning Hub</a> / <span aria-current="page">AC vs DC Output</span></nav>
+<h1>AC vs DC Output</h1>
+<p class="lead">Direct current (DC) keeps one polarity and, in the ideal case, a constant value. Alternating current (AC) reverses direction many times per second. Volta Lab can produce either.</p>
+<p class="sim-note"><strong>Simulation only.</strong> This page explains a software model. It is educational material, not engineering or safety advice.</p>
+
+<h2>DC</h2>
+<p>A DC source holds a steady voltage between its two terminals. A battery is naturally DC. In Volta Lab's DC mode the output is the DC-DC stage's output, with a displayed frequency of 0 Hz.</p>
+<h2>AC, peak and RMS</h2>
+<p><span class="tag tag-law"><span aria-hidden="true">◆</span> Physical law</span> A sinusoidal AC voltage is <var>v(t) = √2 · V<sub>rms</sub> · sin(2π f t)</var>. Its peak is <var>V<sub>pk</sub> = √2 · V<sub>rms</sub></var>, and its period is <var>T = 1 / f</var>. The RMS value is the DC voltage that would heat a resistor equally, which is why AC voltages are normally quoted in RMS.</p>
+<table>
+<caption>Peak voltage for example RMS settings (ideal sine wave)</caption>
+<thead><tr><th scope="col">RMS voltage</th><th scope="col">Peak voltage</th><th scope="col">Peak-to-peak</th></tr></thead>
+<tbody>
+<tr><td>110 V</td><td>155.6 V</td><td>311.1 V</td></tr>
+<tr><td>220 V</td><td>311.1 V</td><td>622.3 V</td></tr>
+<tr><td>415 V</td><td>586.9 V</td><td>1173.8 V</td></tr>
+</tbody>
+</table>
+<p>At the default 50 Hz, one cycle takes 20 ms.</p>
+<h2>Single-phase, two-wire</h2>
+<p>Volta Lab's AC output has two conductors, so it is single-phase and two-wire. The displayed voltage is the RMS voltage between Lead A and Lead B. It is not a three-phase line-to-line value, and the machine does not model any mains supply.</p>
+<h2>What the AC/DC selector does</h2>
+<p><span class="tag tag-approx"><span aria-hidden="true">≈</span> Engineering approximation</span> The selector chooses which <em>chain</em> is active; it does not convert anything by itself.</p>
+<ul>
+<li><strong>DC:</strong> battery → DC-DC stage → output terminals.</li>
+<li><strong>AC:</strong> battery → DC-DC stage → DC link → H-bridge inverter → output terminals.</li>
+</ul>
+<p>Switching mode re-solves the circuit and clears timers that belonged to the previous mode. It cannot create energy: only the solved currents change, and the energy ledger still has to balance. See <a href="/learn/single-phase-h-bridge-inverter/">Single-phase H-bridge inverter</a> and <a href="/learn/dc-dc-converter-fundamentals/">DC-DC converter fundamentals</a>.</p>
+<h2>Power</h2>
+<p><span class="tag tag-law"><span aria-hidden="true">◆</span> Physical law</span> For AC the real power is <var>P = V<sub>rms</sub> · I<sub>rms</sub> · cos φ</var>, apparent power is <var>S = V<sub>rms</sub> · I<sub>rms</sub></var>, and the power factor is <var>P / S</var>. For a purely resistive load, φ = 0 and the power factor is 1. For DC, power is simply <var>V · I</var>.</p>
+<h2>What it does not do</h2>
+<p>There is no rectification stage in the machine itself. A bridge-rectifier model exists only inside the optional "AC-input supply" load type, which represents a device that rectifies the AC it receives.</p>
+<nav class="pager" aria-label="More lessons"><a href="/learn/battery-equivalent-circuit-model/" rel="prev">← Battery Equivalent-Circuit Model</a><a href="/learn/model-limitations-and-safety/" rel="next">Model Limitations and Safety →</a></nav>
+</main>
+<footer><p>Volta Lab is an educational simulator. <a href="/">Open the 3D simulator</a> · <a href="/learn/">Learning Hub</a></p></footer>
+</body>
+</html>

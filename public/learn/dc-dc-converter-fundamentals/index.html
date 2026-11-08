@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DC-DC Converter Fundamentals | Volta Lab</title>
+<meta name="description" content="How buck and boost DC-DC converters change a DC voltage level, what duty cycle means, and how Volta Lab models converter losses and limits. Educational, simulation only.">
+<link rel="canonical" href="https://volta-lab-sable.vercel.app/learn/dc-dc-converter-fundamentals/">
+<meta name="theme-color" content="#070b12">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Volta Lab">
+<meta property="og:title" content="DC-DC Converter Fundamentals | Volta Lab">
+<meta property="og:description" content="How buck and boost DC-DC converters change a DC voltage level, what duty cycle means, and how Volta Lab models converter losses and limits. Educational, simulation only.">
+<meta property="og:url" content="https://volta-lab-sable.vercel.app/learn/dc-dc-converter-fundamentals/">
+<meta property="og:image" content="https://volta-lab-sable.vercel.app/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Volta Lab logo and the text Interactive 3D Power Electronics Simulator">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="DC-DC Converter Fundamentals | Volta Lab">
+<meta name="twitter:description" content="How buck and boost DC-DC converters change a DC voltage level, what duty cycle means, and how Volta Lab models converter losses and limits. Educational, simulation only.">
+<meta name="twitter:image" content="https://volta-lab-sable.vercel.app/og-image.png">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/learn/learn.css">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Volta Lab","item":"https://volta-lab-sable.vercel.app/"},{"@type":"ListItem","position":2,"name":"Learning Hub","item":"https://volta-lab-sable.vercel.app/learn/"},{"@type":"ListItem","position":3,"name":"DC-DC Converter Fundamentals","item":"https://volta-lab-sable.vercel.app/learn/dc-dc-converter-fundamentals/"}]}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"DC-DC Converter Fundamentals","description":"How buck and boost DC-DC converters change a DC voltage level, what duty cycle means, and how Volta Lab models converter losses and limits. Educational, simulation only.","url":"https://volta-lab-sable.vercel.app/learn/dc-dc-converter-fundamentals/","inLanguage":"en","dateModified":"2026-11-08","isPartOf":{"@type":"WebSite","name":"Volta Lab","url":"https://volta-lab-sable.vercel.app/"}}</script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header"><div class="site-header-inner">
+<a class="site-brand" href="/"><img src="/favicon.svg" alt="" width="32" height="32">Volta Lab</a>
+<nav class="site-nav" aria-label="Primary"><a href="/">Simulator</a><a href="/learn/">Learning Hub</a><a href="/learn/model-limitations-and-safety/">Limitations &amp; safety</a></nav>
+</div></header>
+<main id="main">
+<nav class="crumbs" aria-label="Breadcrumb"><a href="/">Volta Lab</a> / <a href="/learn/">Learning Hub</a> / <span aria-current="page">DC-DC Converter Fundamentals</span></nav>
+<h1>DC-DC Converter Fundamentals</h1>
+<p class="lead">A DC-DC converter changes one steady voltage into another. Volta Lab needs one because its battery pack sits at a fixed voltage while the output can be set anywhere from 0 to 415 V.</p>
+<p class="sim-note"><strong>Simulation only.</strong> This page explains a software model. It is educational material, not engineering or safety advice.</p>
+
+<h2>Switching, not dissipating</h2>
+<p>A resistor can lower a voltage, but it turns the difference into heat. A switching converter instead chops the input on and off many thousands of times per second and uses an inductor and a capacitor to smooth the result. The fraction of each switching period during which the transistor is on is the <strong>duty cycle</strong>, <var>D</var>.</p>
+<h2>The two ideal relations</h2>
+<p><span class="tag tag-law"><span aria-hidden="true">◆</span> Physical law</span> For an ideal converter in continuous conduction mode (the inductor current never falls to zero), balancing the inductor's volt-seconds over one period gives:</p>
+<ul>
+<li><strong>Buck (step-down):</strong> <var>V<sub>out</sub> = D · V<sub>in</sub></var>, so <var>D = V<sub>out</sub> / V<sub>in</sub></var>.</li>
+<li><strong>Boost (step-up):</strong> <var>V<sub>out</sub> = V<sub>in</sub> / (1 − D)</var>, so <var>D = 1 − V<sub>in</sub> / V<sub>out</sub></var>.</li>
+</ul>
+<p>Illustrative ideal (loss-free) arithmetic using the default pack's nominal voltage of about 372.6 V: a 220 V DC output needs a buck duty of about 220 / 372.6 ≈ 0.59, and a 415 V DC output needs a boost duty of about 1 − 372.6 / 415 ≈ 0.10. Real converters need slightly more because of losses.</p>
+<h2>Losses and efficiency</h2>
+<p><span class="tag tag-approx"><span aria-hidden="true">≈</span> Engineering approximation</span> Volta Lab uses an <em>averaged</em> model: it follows the cycle-averaged behaviour and does not simulate individual switching edges. Input power is the output power plus three loss terms:</p>
+<p class="formula"><var>P<sub>in</sub> = P<sub>out</sub> · (1 + k<sub>sw</sub>) + P<sub>fixed</sub> + R<sub>cond</sub> · I<sub>in</sub><sup>2</sup></var></p>
+<p>The terms are a switching loss proportional to output power, a fixed control and gate-drive loss, and a conduction loss that grows with the square of the input current. Efficiency is then a <em>result</em>, <var>η = P<sub>out</sub> / P<sub>in</sub></var>, never a number typed in. Because the battery has internal resistance, the input current is found by solving a quadratic; if the discriminant is negative the source simply cannot deliver that power.</p>
+<h2>Duty limits</h2>
+<p><span class="tag tag-assumed"><span aria-hidden="true">◇</span> Illustrative assumption</span> The machine's converter is limited to a duty cycle of at most 0.9 (a model assumption). With a non-isolated boost, the maximum ideal gain is therefore 1 / (1 − 0.9) = 10, and a request beyond what the limit allows is reported as a duty-limit condition rather than silently shown as achieved.</p>
+<h2>Ripple</h2>
+<p><span class="tag tag-approx"><span aria-hidden="true">≈</span> Engineering approximation</span> Inductor ripple uses the standard continuous-conduction formula <var>ΔI<sub>L</sub> = V<sub>in</sub> · D / (L · f<sub>sw</sub>)</var> for a boost stage. Only the formulas are used; no waveform is drawn.</p>
+<h2>What Volta Lab does with it</h2>
+<ul>
+<li>In DC mode the machine compares the requested voltage with the battery's open-circuit voltage and treats the stage as a buck if the request is lower, a boost if it is higher.</li>
+<li>The Controls panel shows the converter's input current, efficiency and loss, so you can watch loss rise with load.</li>
+<li>The converter has a thermal model and shuts down above a shutdown temperature, restarting only after it cools below a lower restart temperature (hysteresis). Both temperatures are assumed values.</li>
+</ul>
+<h2>What it does not do</h2>
+<p>It does not model discontinuous conduction, individual transistor switching, electromagnetic interference, or any specific commercial converter. All loss coefficients, the switching frequency (50 kHz), the inductor and capacitor values are illustrative assumptions, not datasheet values.</p>
+<nav class="pager" aria-label="More lessons"><a href="/learn/" rel="prev">← Learning Hub</a><a href="/learn/single-phase-h-bridge-inverter/" rel="next">Single-Phase H-Bridge Inverter →</a></nav>
+</main>
+<footer><p>Volta Lab is an educational simulator. <a href="/">Open the 3D simulator</a> · <a href="/learn/">Learning Hub</a></p></footer>
+</body>
+</html>

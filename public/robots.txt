@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://volta-lab-sable.vercel.app/sitemap.xml

@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Model Limitations and Safety | Volta Lab</title>
+<meta name="description" content="What Volta Lab simulates and what it does not: parameter sources, the short-circuit fault test, protection behaviour, and why the simulator must not guide real wiring. Simulation only.">
+<link rel="canonical" href="https://volta-lab-sable.vercel.app/learn/model-limitations-and-safety/">
+<meta name="theme-color" content="#070b12">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Volta Lab">
+<meta property="og:title" content="Model Limitations and Safety | Volta Lab">
+<meta property="og:description" content="What Volta Lab simulates and what it does not: parameter sources, the short-circuit fault test, protection behaviour, and why the simulator must not guide real wiring. Simulation only.">
+<meta property="og:url" content="https://volta-lab-sable.vercel.app/learn/model-limitations-and-safety/">
+<meta property="og:image" content="https://volta-lab-sable.vercel.app/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Volta Lab logo and the text Interactive 3D Power Electronics Simulator">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Model Limitations and Safety | Volta Lab">
+<meta name="twitter:description" content="What Volta Lab simulates and what it does not: parameter sources, the short-circuit fault test, protection behaviour, and why the simulator must not guide real wiring. Simulation only.">
+<meta name="twitter:image" content="https://volta-lab-sable.vercel.app/og-image.png">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/learn/learn.css">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Volta Lab","item":"https://volta-lab-sable.vercel.app/"},{"@type":"ListItem","position":2,"name":"Learning Hub","item":"https://volta-lab-sable.vercel.app/learn/"},{"@type":"ListItem","position":3,"name":"Model Limitations and Safety","item":"https://volta-lab-sable.vercel.app/learn/model-limitations-and-safety/"}]}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Model Limitations and Safety","description":"What Volta Lab simulates and what it does not: parameter sources, the short-circuit fault test, protection behaviour, and why the simulator must not guide real wiring. Simulation only.","url":"https://volta-lab-sable.vercel.app/learn/model-limitations-and-safety/","inLanguage":"en","dateModified":"2026-11-08","isPartOf":{"@type":"WebSite","name":"Volta Lab","url":"https://volta-lab-sable.vercel.app/"}}</script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header"><div class="site-header-inner">
+<a class="site-brand" href="/"><img src="/favicon.svg" alt="" width="32" height="32">Volta Lab</a>
+<nav class="site-nav" aria-label="Primary"><a href="/">Simulator</a><a href="/learn/">Learning Hub</a><a href="/learn/model-limitations-and-safety/" aria-current="page">Limitations &amp; safety</a></nav>
+</div></header>
+<main id="main">
+<nav class="crumbs" aria-label="Breadcrumb"><a href="/">Volta Lab</a> / <a href="/learn/">Learning Hub</a> / <span aria-current="page">Model Limitations and Safety</span></nav>
+<h1>Model Limitations and Safety</h1>
+<p class="lead">Volta Lab is a teaching tool. It runs entirely in your browser and cannot generate, measure or deliver real electricity. Please read this page before you trust any number it shows.</p>
+<p class="sim-note"><strong>Simulation only.</strong> This page explains a software model. It is educational material, not engineering or safety advice.</p>
+
+<h2>Simulation only</h2>
+<p>Every voltage, current, power and temperature on screen is computed by a software model. Nothing is measured from hardware, and the simulator cannot power an LED or any real device. Do not use it to make decisions about real wiring, protection or equipment design.</p>
+<h2>The cable-contact test is a fault</h2>
+<p>Touching the two cable ends together while the power is on simulates a <strong>terminal short circuit</strong>. That is a fault condition, not how a lamp or appliance is connected. To model a normal load you attach a load across the leads instead.</p>
+<ul>
+<li><span class="tag tag-assumed"><span aria-hidden="true">◇</span> Illustrative assumption</span> The contact between the leads has a resistance of 0.05 Ω.</li>
+<li><span class="tag tag-assumed"><span aria-hidden="true">◇</span> Illustrative assumption</span> The converter limits the output current to 10 A. If it stays at that limit for 2 seconds, the machine trips and latches off.</li>
+<li>A latched trip is reset by switching main power off and on again.</li>
+<li>The spark you see is a visual effect only; it is not a calculation of a real arc.</li>
+</ul>
+<h2>Other protections modelled</h2>
+<p>The battery model has a low-voltage cutoff, an empty state, an over-discharge current limit and an over-temperature limit. The converter has thermal shutdown with a restart temperature below the shutdown temperature. Attached loads move through normal, warning, overloaded, overheating, protection and damaged states, judged only against ratings the load actually specifies.</p>
+<h2>How trustworthy is each number?</h2>
+<table>
+<caption>Where Volta Lab's values come from</caption>
+<thead><tr><th scope="col">Kind</th><th scope="col">Examples</th></tr></thead>
+<tbody>
+<tr><th scope="row"><span class="tag tag-law"><span aria-hidden="true">◆</span> Physical law</span></th><td>V<sub>pk</sub> = √2 · V<sub>rms</sub>; series and parallel rules; Coulomb counting; P = V · I · cos φ</td></tr>
+<tr><th scope="row"><span class="tag tag-approx"><span aria-hidden="true">≈</span> Engineering approximation</span></th><td>The 1-RC battery structure; averaged converter and inverter models; continuous-conduction duty formulas</td></tr>
+<tr><th scope="row"><span class="tag tag-assumed"><span aria-hidden="true">◇</span> Illustrative assumption</span></th><td>Internal resistances, loss coefficients, the default pack, the 10 A limit, the 2 s trip delay, temperatures</td></tr>
+</tbody>
+</table>
+<p>No parameter in the project is taken from a manufacturer datasheet or from a measurement.</p>
+<h2>What is not simulated</h2>
+<ul>
+<li>Solar panels, maximum-power-point tracking or any solar charger.</li>
+<li>Mains supply, grid connection or grid synchronisation.</li>
+<li>Three-phase systems.</li>
+<li>Battery charging, ageing or thermal runaway.</li>
+<li>Individual switching waveforms, harmonics or electromagnetic interference.</li>
+<li>Real electric arcs or the effects of electric shock on a person.</li>
+</ul>
+<h2>Real-world safety</h2>
+<p>Mains-level voltage can kill. Real arc and shock hazards depend on the source's impedance, the contact geometry, insulation, the environment and the exposure, none of which this model represents. Never copy wire-touching or sparking experiments with a real supply. Work on real electrical equipment only if you are qualified and follow the applicable standards and local regulations.</p>
+<p>Return to the <a href="/">simulator</a> or the <a href="/learn/">Learning Hub</a>.</p>
+<nav class="pager" aria-label="More lessons"><a href="/learn/ac-vs-dc-output/" rel="prev">← AC vs DC Output</a><span></span></nav>
+</main>
+<footer><p>Volta Lab is an educational simulator. <a href="/">Open the 3D simulator</a> · <a href="/learn/">Learning Hub</a></p></footer>
+</body>
+</html>

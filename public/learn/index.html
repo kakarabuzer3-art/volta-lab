@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Learning Hub: Power Electronics Basics | Volta Lab</title>
+<meta name="description" content="Short, original lessons on DC-DC converters, single-phase H-bridge inverters, battery equivalent circuits and AC versus DC output, based on the Volta Lab simulator. Simulation only.">
+<link rel="canonical" href="https://volta-lab-sable.vercel.app/learn/">
+<meta name="theme-color" content="#070b12">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Volta Lab">
+<meta property="og:title" content="Learning Hub: Power Electronics Basics | Volta Lab">
+<meta property="og:description" content="Short, original lessons on DC-DC converters, single-phase H-bridge inverters, battery equivalent circuits and AC versus DC output, based on the Volta Lab simulator. Simulation only.">
+<meta property="og:url" content="https://volta-lab-sable.vercel.app/learn/">
+<meta property="og:image" content="https://volta-lab-sable.vercel.app/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Volta Lab logo and the text Interactive 3D Power Electronics Simulator">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Learning Hub: Power Electronics Basics | Volta Lab">
+<meta name="twitter:description" content="Short, original lessons on DC-DC converters, single-phase H-bridge inverters, battery equivalent circuits and AC versus DC output, based on the Volta Lab simulator. Simulation only.">
+<meta name="twitter:image" content="https://volta-lab-sable.vercel.app/og-image.png">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/learn/learn.css">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Volta Lab","item":"https://volta-lab-sable.vercel.app/"},{"@type":"ListItem","position":2,"name":"Learning Hub","item":"https://volta-lab-sable.vercel.app/learn/"}]}</script>
+
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header"><div class="site-header-inner">
+<a class="site-brand" href="/"><img src="/favicon.svg" alt="" width="32" height="32">Volta Lab</a>
+<nav class="site-nav" aria-label="Primary"><a href="/">Simulator</a><a href="/learn/" aria-current="page">Learning Hub</a><a href="/learn/model-limitations-and-safety/">Limitations &amp; safety</a></nav>
+</div></header>
+<main id="main">
+<nav class="crumbs" aria-label="Breadcrumb"><a href="/">Volta Lab</a> / <span aria-current="page">Learning Hub</span></nav>
+<h1>Learning Hub</h1>
+<p class="lead">Plain-language lessons on the electronics inside the Volta Lab simulator, with clear labels for what is physics, what is approximation and what is assumption.</p>
+<p class="sim-note"><strong>Simulation only.</strong> This page explains a software model. It is educational material, not engineering or safety advice.</p>
+
+<h2>Five short lessons</h2>
+<p>Each lesson explains one block of the simulator and is based on how it is actually implemented. Every statement is tagged so you can tell what kind of claim it is:</p>
+<ul>
+<li><span class="tag tag-law"><span aria-hidden="true">◆</span> Physical law</span>: established physics that does not depend on this project.</li>
+<li><span class="tag tag-approx"><span aria-hidden="true">≈</span> Engineering approximation</span>: a standard simplification, valid only within stated limits.</li>
+<li><span class="tag tag-assumed"><span aria-hidden="true">◇</span> Illustrative assumption</span>: a number or choice picked by the author to make the demonstration work, not a real product's value.</li>
+</ul>
+<ul class="cards">
+<li><a href="/learn/dc-dc-converter-fundamentals/"><strong>DC-DC Converter Fundamentals</strong><span>A DC-DC converter changes one steady voltage into another. Volta Lab needs one because its battery pack sits at a fixed voltage while the output can be set anywhere from 0 to 415 V.</span></a></li>
+<li><a href="/learn/single-phase-h-bridge-inverter/"><strong>Single-Phase H-Bridge Inverter</strong><span>An inverter turns direct current into alternating current. In AC mode, Volta Lab sends the DC-DC stage's output through an H-bridge to make a single-phase, two-wire AC output.</span></a></li>
+<li><a href="/learn/battery-equivalent-circuit-model/"><strong>Battery Equivalent-Circuit Model</strong><span>Volta Lab does not simulate battery chemistry. It uses a small electrical circuit that behaves like a battery: a voltage source, a resistor and one resistor-capacitor pair.</span></a></li>
+<li><a href="/learn/ac-vs-dc-output/"><strong>AC vs DC Output</strong><span>Direct current (DC) keeps one polarity and, in the ideal case, a constant value. Alternating current (AC) reverses direction many times per second. Volta Lab can produce either.</span></a></li>
+<li><a href="/learn/model-limitations-and-safety/"><strong>Model Limitations and Safety</strong><span>Volta Lab is a teaching tool. It runs entirely in your browser and cannot generate, measure or deliver real electricity. Please read this page before you trust any number it shows.</span></a></li>
+</ul>
+<p><a class="cta" href="/">Open the 3D simulator</a></p>
+<h2>What Volta Lab is</h2>
+<p>Volta Lab is a browser-based 3D simulation of a battery, a DC-DC converter and a single-phase inverter feeding two output cables. You can switch between AC and DC, set the output between 0 and 415 V, bring the cable ends together to see a simulated fault, and read live telemetry. It does not simulate solar panels, grid connection or three-phase systems, and it never produces real electricity.</p>
+
+</main>
+<footer><p>Volta Lab is an educational simulator. <a href="/">Open the 3D simulator</a> · <a href="/learn/">Learning Hub</a></p></footer>
+</body>
+</html>

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Battery Equivalent-Circuit Model | Volta Lab</title>
+<meta name="description" content="How a Thevenin 1-RC equivalent circuit represents a battery pack, how state of charge is counted, and which Volta Lab battery values are assumptions. Simulation only.">
+<link rel="canonical" href="https://volta-lab-sable.vercel.app/learn/battery-equivalent-circuit-model/">
+<meta name="theme-color" content="#070b12">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Volta Lab">
+<meta property="og:title" content="Battery Equivalent-Circuit Model | Volta Lab">
+<meta property="og:description" content="How a Thevenin 1-RC equivalent circuit represents a battery pack, how state of charge is counted, and which Volta Lab battery values are assumptions. Simulation only.">
+<meta property="og:url" content="https://volta-lab-sable.vercel.app/learn/battery-equivalent-circuit-model/">
+<meta property="og:image" content="https://volta-lab-sable.vercel.app/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Volta Lab logo and the text Interactive 3D Power Electronics Simulator">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Battery Equivalent-Circuit Model | Volta Lab">
+<meta name="twitter:description" content="How a Thevenin 1-RC equivalent circuit represents a battery pack, how state of charge is counted, and which Volta Lab battery values are assumptions. Simulation only.">
+<meta name="twitter:image" content="https://volta-lab-sable.vercel.app/og-image.png">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/learn/learn.css">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Volta Lab","item":"https://volta-lab-sable.vercel.app/"},{"@type":"ListItem","position":2,"name":"Learning Hub","item":"https://volta-lab-sable.vercel.app/learn/"},{"@type":"ListItem","position":3,"name":"Battery Equivalent-Circuit Model","item":"https://volta-lab-sable.vercel.app/learn/battery-equivalent-circuit-model/"}]}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Battery Equivalent-Circuit Model","description":"How a Thevenin 1-RC equivalent circuit represents a battery pack, how state of charge is counted, and which Volta Lab battery values are assumptions. Simulation only.","url":"https://volta-lab-sable.vercel.app/learn/battery-equivalent-circuit-model/","inLanguage":"en","dateModified":"2026-11-08","isPartOf":{"@type":"WebSite","name":"Volta Lab","url":"https://volta-lab-sable.vercel.app/"}}</script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header"><div class="site-header-inner">
+<a class="site-brand" href="/"><img src="/favicon.svg" alt="" width="32" height="32">Volta Lab</a>
+<nav class="site-nav" aria-label="Primary"><a href="/">Simulator</a><a href="/learn/">Learning Hub</a><a href="/learn/model-limitations-and-safety/">Limitations &amp; safety</a></nav>
+</div></header>
+<main id="main">
+<nav class="crumbs" aria-label="Breadcrumb"><a href="/">Volta Lab</a> / <a href="/learn/">Learning Hub</a> / <span aria-current="page">Battery Equivalent-Circuit Model</span></nav>
+<h1>Battery Equivalent-Circuit Model</h1>
+<p class="lead">Volta Lab does not simulate battery chemistry. It uses a small electrical circuit that behaves like a battery: a voltage source, a resistor and one resistor-capacitor pair.</p>
+<p class="sim-note"><strong>Simulation only.</strong> This page explains a software model. It is educational material, not engineering or safety advice.</p>
+
+<h2>The circuit</h2>
+<p><span class="tag tag-approx"><span aria-hidden="true">≈</span> Engineering approximation</span> This is a first-order Thevenin (1-RC) equivalent circuit. The terminal voltage while discharging at current <var>I</var> is:</p>
+<p class="formula"><var>V<sub>t</sub> = OCV(SOC, T) − I · R<sub>0</sub> − V<sub>1</sub></var></p>
+<ul>
+<li><var>OCV</var> is the open-circuit voltage, which depends on state of charge and temperature.</li>
+<li><var>R<sub>0</sub></var> is the instantaneous series resistance: the immediate voltage sag when current starts.</li>
+<li><var>V<sub>1</sub></var> is the voltage across a resistor-capacitor pair <var>R<sub>1</sub>, C<sub>1</sub></var>. It follows <var>dV<sub>1</sub>/dt = (I · R<sub>1</sub> − V<sub>1</sub>) / (R<sub>1</sub> · C<sub>1</sub>)</var>, so the sag builds up and relaxes over seconds rather than instantly. Volta Lab advances it with an exact exponential step, which stays stable at any step size.</li>
+</ul>
+<h2>Counting charge</h2>
+<p><span class="tag tag-law"><span aria-hidden="true">◆</span> Physical law</span> State of charge is tracked by Coulomb counting: remove <var>I · Δt</var> of charge each step and divide by the capacity. If the remaining charge would go below zero, delivery is truncated, so an empty battery gives nothing and never creates energy.</p>
+<h2>From cell to pack</h2>
+<p><span class="tag tag-law"><span aria-hidden="true">◆</span> Physical law</span> Cells in series add voltage and cells in parallel add capacity: <var>V<sub>pack</sub> = N<sub>s</sub> · V<sub>cell</sub></var>, <var>Ah = N<sub>p</sub> · Ah<sub>cell</sub></var>, <var>R<sub>pack</sub> = N<sub>s</sub> · R<sub>cell</sub> / N<sub>p</sub></var>.</p>
+<p><span class="tag tag-assumed"><span aria-hidden="true">◇</span> Illustrative assumption</span> The default machine pack is 100 lithium-ion cells in series by 2 in parallel, 5 Ah per cell. That gives 10 Ah, about 372.6 V nominal and about 3.73 kWh nominal, starting at 90 % state of charge. This is an illustrative pack, not a commercial product.</p>
+<h2>Heat and protection</h2>
+<p><span class="tag tag-approx"><span aria-hidden="true">≈</span> Engineering approximation</span> Battery heating uses a lumped thermal model (<var>C<sub>th</sub> · dT/dt</var> equals heat generated minus heat lost to ambient). The model enforces a low-voltage cutoff, an empty-battery state, an over-discharge current limit and an over-temperature limit, each of which latches a protective shutdown.</p>
+<h2>Where the numbers come from</h2>
+<p>The shape of the open-circuit-voltage curve, the cutoff voltages and the coulombic efficiency are literature-typical values. The resistances, the time constant, their dependence on charge and temperature, and the thermal values are <em>assumed</em> by the author. <strong>No battery parameter in Volta Lab is a manufacturer datasheet value or a measurement.</strong></p>
+<h2>What it does not do</h2>
+<p>There is no charging feature, no ageing or capacity fade, no thermal runaway, and no cell-to-cell imbalance. A 12 V lead-acid profile exists only inside the test suite to check the maths; the machine itself always uses the lithium-ion pack above.</p>
+<nav class="pager" aria-label="More lessons"><a href="/learn/single-phase-h-bridge-inverter/" rel="prev">← Single-Phase H-Bridge Inverter</a><a href="/learn/ac-vs-dc-output/" rel="next">AC vs DC Output →</a></nav>
+</main>
+<footer><p>Volta Lab is an educational simulator. <a href="/">Open the 3D simulator</a> · <a href="/learn/">Learning Hub</a></p></footer>
+</body>
+</html>

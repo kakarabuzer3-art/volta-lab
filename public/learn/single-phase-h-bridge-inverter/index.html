@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Single-Phase H-Bridge Inverter | Volta Lab</title>
+<meta name="description" content="How a full H-bridge turns a DC link into single-phase AC with sine-PWM, and how Volta Lab models modulation limits, losses and the two-wire output. Simulation only.">
+<link rel="canonical" href="https://volta-lab-sable.vercel.app/learn/single-phase-h-bridge-inverter/">
+<meta name="theme-color" content="#070b12">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Volta Lab">
+<meta property="og:title" content="Single-Phase H-Bridge Inverter | Volta Lab">
+<meta property="og:description" content="How a full H-bridge turns a DC link into single-phase AC with sine-PWM, and how Volta Lab models modulation limits, losses and the two-wire output. Simulation only.">
+<meta property="og:url" content="https://volta-lab-sable.vercel.app/learn/single-phase-h-bridge-inverter/">
+<meta property="og:image" content="https://volta-lab-sable.vercel.app/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Volta Lab logo and the text Interactive 3D Power Electronics Simulator">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Single-Phase H-Bridge Inverter | Volta Lab">
+<meta name="twitter:description" content="How a full H-bridge turns a DC link into single-phase AC with sine-PWM, and how Volta Lab models modulation limits, losses and the two-wire output. Simulation only.">
+<meta name="twitter:image" content="https://volta-lab-sable.vercel.app/og-image.png">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/learn/learn.css">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Volta Lab","item":"https://volta-lab-sable.vercel.app/"},{"@type":"ListItem","position":2,"name":"Learning Hub","item":"https://volta-lab-sable.vercel.app/learn/"},{"@type":"ListItem","position":3,"name":"Single-Phase H-Bridge Inverter","item":"https://volta-lab-sable.vercel.app/learn/single-phase-h-bridge-inverter/"}]}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Single-Phase H-Bridge Inverter","description":"How a full H-bridge turns a DC link into single-phase AC with sine-PWM, and how Volta Lab models modulation limits, losses and the two-wire output. Simulation only.","url":"https://volta-lab-sable.vercel.app/learn/single-phase-h-bridge-inverter/","inLanguage":"en","dateModified":"2026-11-08","isPartOf":{"@type":"WebSite","name":"Volta Lab","url":"https://volta-lab-sable.vercel.app/"}}</script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header"><div class="site-header-inner">
+<a class="site-brand" href="/"><img src="/favicon.svg" alt="" width="32" height="32">Volta Lab</a>
+<nav class="site-nav" aria-label="Primary"><a href="/">Simulator</a><a href="/learn/">Learning Hub</a><a href="/learn/model-limitations-and-safety/">Limitations &amp; safety</a></nav>
+</div></header>
+<main id="main">
+<nav class="crumbs" aria-label="Breadcrumb"><a href="/">Volta Lab</a> / <a href="/learn/">Learning Hub</a> / <span aria-current="page">Single-Phase H-Bridge Inverter</span></nav>
+<h1>Single-Phase H-Bridge Inverter</h1>
+<p class="lead">An inverter turns direct current into alternating current. In AC mode, Volta Lab sends the DC-DC stage's output through an H-bridge to make a single-phase, two-wire AC output.</p>
+<p class="sim-note"><strong>Simulation only.</strong> This page explains a software model. It is educational material, not engineering or safety advice.</p>
+
+<h2>Four switches in an H</h2>
+<p>A full bridge has two switches on each side of the load. Closing one diagonal pair drives current through the load in one direction; closing the other pair reverses it. Switching between the pairs fast enough, and varying how long each is on, lets the average output follow a sine wave. This is <strong>sine-PWM</strong> (pulse-width modulation).</p>
+<h2>Modulation index and the DC link</h2>
+<p><span class="tag tag-approx"><span aria-hidden="true">≈</span> Engineering approximation</span> For a single-phase full bridge in its linear range, the peak output voltage is the modulation index <var>m</var> times the DC-link voltage: <var>V<sub>ac,pk</sub> = m · V<sub>link</sub></var>, and the RMS value is <var>V<sub>ac,rms</sub> = V<sub>ac,pk</sub> / √2</var>.</p>
+<p><span class="tag tag-assumed"><span aria-hidden="true">◇</span> Illustrative assumption</span> The model limits <var>m</var> to 0.95. To deliver the 415 V RMS maximum, the peak is √2 × 415 ≈ 586.9 V, so the DC link must be at least about 586.9 / 0.95 ≈ 617.8 V. The model allows a link between 60 V and 700 V (assumed limits). If the link cannot reach what the requested AC voltage needs, the converter reports a modulation limit instead of pretending.</p>
+<h2>Real power comes from the DC side</h2>
+<p><span class="tag tag-law"><span aria-hidden="true">◆</span> Physical law</span> Only real power (the part that does work, <var>P = V<sub>rms</sub> · I<sub>rms</sub> · cos φ</var>) must be supplied by the DC link. Reactive power circulates between the load and the bridge without being drawn from the battery. Volta Lab books link power as:</p>
+<p class="formula"><var>P<sub>link</sub> = P<sub>out,real</sub> + P<sub>fixed</sub> + k<sub>sw</sub> · S<sub>out</sub> + R<sub>bridge</sub> · I<sub>rms</sub><sup>2</sup></var></p>
+<p><span class="tag tag-assumed"><span aria-hidden="true">◇</span> Illustrative assumption</span> The bridge's fixed loss (3 W), switching-loss fraction (1.5 % of apparent power) and resistance (0.08 Ω) are illustrative numbers. All inverter losses are also supplied through the DC-DC stage, which has its own losses.</p>
+<h2>Single-phase, two-wire</h2>
+<p>The machine has two output leads, Lead A and Lead B. The AC set-point is the RMS voltage <em>between those two leads</em>. It is not a three-phase line-to-line voltage, and 415 V is just the top of the machine's range, not a statement about household supply.</p>
+<h2>What Volta Lab does with it</h2>
+<ul>
+<li>With the AC/DC switch on AC the chain is battery → DC-DC stage → DC link → H-bridge → output; on DC the bridge is bypassed.</li>
+<li>The default output frequency is 50 Hz (an assumed default; the equations support others).</li>
+<li>The output current limit is 10 A RMS, with a protective trip described in <a href="/learn/model-limitations-and-safety/">Model limitations and safety</a>.</li>
+</ul>
+<h2>What it does not do</h2>
+<p>The model assumes an ideal, perfectly filtered sine wave: no harmonic distortion, no dead-time effects, no switching waveforms. There is no grid connection, no synchronisation to a grid, no anti-islanding behaviour, and no three-phase output.</p>
+<nav class="pager" aria-label="More lessons"><a href="/learn/dc-dc-converter-fundamentals/" rel="prev">← DC-DC Converter Fundamentals</a><a href="/learn/battery-equivalent-circuit-model/" rel="next">Battery Equivalent-Circuit Model →</a></nav>
+</main>
+<footer><p>Volta Lab is an educational simulator. <a href="/">Open the 3D simulator</a> · <a href="/learn/">Learning Hub</a></p></footer>
+</body>
+</html>
