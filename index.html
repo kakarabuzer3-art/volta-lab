@@ -3,20 +3,41 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Volta Lab | Interactive 3D Power Electronics Simulator</title>
+    <meta name="description" content="Explore an educational 3D battery, DC-DC converter and single-phase inverter simulator. Adjust virtual AC/DC output, observe cable-contact states and inspect live electrical telemetry. Simulation only." />
+    <link rel="canonical" href="https://volta-lab-sable.vercel.app/" />
     <meta name="theme-color" content="#070b12" />
-    <meta name="description" content="A cinematic, interactive 3D industrial power-unit simulator." />
-    <title>Volta Lab — Industrial Power Unit</title>
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Volta Lab" />
+    <meta property="og:title" content="Volta Lab | Interactive 3D Power Electronics Simulator" />
+    <meta property="og:description" content="Explore an educational 3D battery, DC-DC converter and single-phase inverter simulator. Adjust virtual AC/DC output, observe cable-contact states and inspect live electrical telemetry. Simulation only." />
+    <meta property="og:url" content="https://volta-lab-sable.vercel.app/" />
+    <meta property="og:image" content="https://volta-lab-sable.vercel.app/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Volta Lab logo and the text Interactive 3D Power Electronics Simulator" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Volta Lab | Interactive 3D Power Electronics Simulator" />
+    <meta name="twitter:description" content="Explore an educational 3D battery, DC-DC converter and single-phase inverter simulator. Adjust virtual AC/DC output, observe cable-contact states and inspect live electrical telemetry. Simulation only." />
+    <meta name="twitter:image" content="https://volta-lab-sable.vercel.app/og-image.png" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap" />
+    <!-- Fonts load without blocking first paint (font-display: swap; system fonts are the fallback). -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'" />
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap" /></noscript>
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Volta Lab","url":"https://volta-lab-sable.vercel.app/","description":"Explore an educational 3D battery, DC-DC converter and single-phase inverter simulator. Adjust virtual AC/DC output, observe cable-contact states and inspect live electrical telemetry. Simulation only.","applicationCategory":"EducationalApplication","operatingSystem":"Any operating system with a WebGL-capable web browser","inLanguage":"en","isAccessibleForFree":true,"image":"https://volta-lab-sable.vercel.app/og-image.png"}</script>
   </head>
   <body>
     <div id="app">
       <main class="stage">
         <section class="scene-section" aria-label="Interactive 3D power unit">
           <div id="sceneWrap" class="scene-wrap">
-            <canvas id="sceneCanvas" aria-label="3D industrial power unit. Drag either cable tip; drag the front dial to change the output setting; click the AC/DC selector to switch source mode (key M); drag empty space to orbit."></canvas>
+            <canvas id="sceneCanvas" role="img" aria-label="Interactive 3D model of the Volta Lab power unit. Drag or click either cable tip, drag the front dial, or click the AC/DC lever. Every one of these actions is also available as a button or slider in the Controls panel."></canvas>
             <div class="scene-vignette"></div>
+            <p id="sceneLoading" class="scene-loading" role="status">Loading the 3D simulator…</p>
             <div id="wireHint" class="wire-hint" role="status" aria-live="polite"></div>
             <div class="scene-coordinate coord-tl">X: <b id="coordX">0.00</b><br>Y: <b id="coordY">0.00</b><br>Z: <b id="coordZ">0.00</b></div>
             <div class="scene-status"><span class="status-square"></span><span id="sceneStatusText">MACHINE STANDBY</span><span class="scene-status-sep">·</span><span id="sceneFps">60 FPS TARGET</span></div>
@@ -28,22 +49,36 @@
           </div>
         </section>
 
-        <div class="stage-tools">
-          <button id="cameraModeBtn" class="subtle-button camera-mode-btn" type="button" data-mode="free" aria-label="Camera control: VIEW FREE. Click to switch to VIEW LOCKED." title="Camera control: VIEW FREE. Click to switch to VIEW LOCKED.">
+        <header class="topbar">
+          <h1 class="brand"><a href="/" aria-label="Volta Lab, interactive 3D power electronics simulator"><svg class="brand-mark" viewBox="0 0 48 48" aria-hidden="true"><rect x="3" y="3" width="42" height="42" rx="11" fill="#0f1722" stroke="#4be1ac" stroke-width="2"/><path d="M9 26c3.2 0 3.2-8 6.4-8s3.2 12 6.4 12 3.2-12 6.4-12 3.2 8 6.4 8" fill="none" stroke="#60c7f2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="39.5" cy="26" r="2" fill="#4be1ac"/></svg><span class="brand-text"><span class="brand-name">Volta Lab</span><span class="brand-sub">Interactive 3D Power Electronics Simulator</span></span></a></h1>
+          <nav class="topnav" aria-label="Primary"><a href="/learn/">Learning Hub</a><a href="/learn/model-limitations-and-safety/">Limitations &amp; safety</a></nav>
+          <span class="sim-badge"><span aria-hidden="true">⚠</span> Simulation only</span>
+          <span class="topbar-spacer"></span>
+          <div class="stage-tools" role="group" aria-label="View controls">
+            <button id="cameraModeBtn" class="subtle-button camera-mode-btn" type="button" data-mode="free" aria-label="Camera control: VIEW FREE. Click to switch to VIEW LOCKED." title="Camera control: VIEW FREE. Click to switch to VIEW LOCKED.">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l1.6-2.2h6.8L17 8h3v11H4z"/><circle cx="12" cy="13.2" r="3.3"/></svg>
             <span id="cameraModeLabel">VIEW FREE</span>
           </button>
-          <button id="explodeBtn" class="subtle-button" type="button" aria-pressed="false">DETAIL VIEW <span class="toggle-track"><i></i></span></button>
-          <button id="panelToggle" class="panel-toggle" type="button" aria-expanded="false" aria-controls="controlPanel" aria-label="Open control panel" title="Controls (P)">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path class="icon-open" d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle class="icon-open" cx="16" cy="7" r="2"/><circle class="icon-open" cx="8" cy="17" r="2"/><path class="icon-close" d="M6 6l12 12M18 6L6 18"/></svg>
-          </button>
-        </div>
+            <button id="explodeBtn" class="subtle-button" type="button" aria-pressed="false">DETAIL VIEW <span class="toggle-track"><i></i></span></button>
+          </div>
+          <div class="top-actions">
+            <button id="helpBtn" class="help-btn" type="button" aria-haspopup="dialog" aria-label="Help: quick start and keyboard shortcuts" title="Help (?)">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.4a2.5 2.5 0 1 1 3.6 2.2c-.8.5-1.2 1-1.2 1.9M12 17h.01"/></svg>
+              <span class="help-btn-text">Help</span>
+            </button>
+            <button id="panelToggle" class="panel-toggle" type="button" aria-expanded="false" aria-controls="controlPanel" aria-label="Open control panel" title="Controls (P)">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path class="icon-open" d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle class="icon-open" cx="16" cy="7" r="2"/><circle class="icon-open" cx="8" cy="17" r="2"/><path class="icon-close" d="M6 6l12 12M18 6L6 18"/></svg>
+              <span class="panel-toggle-text">Controls</span>
+            </button>
+          </div>
+        </header>
 
         <aside id="controlPanel" class="control-column" aria-label="Machine controls">
           <section class="control-card power-card">
             <div class="card-heading"><div><span class="section-index">01</span><h2>Machine Control</h2></div><span class="card-dot"></span></div>
             <div class="machine-identity"><div class="machine-icon"><svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="17"/><circle cx="24" cy="24" r="8"/><path d="M24 7v9M24 32v9M7 24h9M32 24h9M12 12l7 7M29 29l7 7M36 12l-7 7M19 29l-7 7"/></svg></div><div class="identity-copy"><strong>INDUSTRIAL POWER UNIT</strong><span>V-415 / DIGITAL OUTPUT MODEL</span></div><span class="model-tag">V-415</span></div>
             <div class="power-switch-row"><div><strong>MAIN POWER</strong><span id="powerDescription">Output stage is disabled</span></div><button id="powerBtn" class="power-switch" type="button" role="switch" aria-checked="false" aria-label="Main power"><span class="switch-text switch-text-on" aria-hidden="true">ON</span><span class="switch-text switch-text-off" aria-hidden="true">OFF</span><span class="switch-knob" aria-hidden="true"></span></button></div>
+            <div class="mode-row"><div><strong id="modeLabel">OUTPUT MODE</strong><span id="modeDesc">AC: single-phase, two-wire, 50 Hz</span></div><div class="segmented" role="radiogroup" aria-labelledby="modeLabel"><button id="modeAcBtn" type="button" role="radio" aria-checked="true" data-mode="AC" tabindex="0">AC</button><button id="modeDcBtn" type="button" role="radio" aria-checked="false" data-mode="DC" tabindex="-1">DC</button></div></div>
             <div class="control-divider"></div>
             <div class="slider-head"><label for="voltageSlider">OUTPUT VOLTAGE</label><div class="slider-value"><strong id="voltageValue">220</strong><span id="voltageUnit">V AC RMS</span></div></div>
             <input id="voltageSlider" class="range range-voltage" type="range" min="0" max="415" value="220" step="1" aria-label="Output voltage setting" />
@@ -54,6 +89,7 @@
 
           <section class="control-card cable-card">
             <div class="card-heading"><div><span class="section-index">02</span><h2>Output Cables</h2></div><span class="connection-state" id="connectionPill"><i></i> OPEN CIRCUIT</span></div>
+            <p class="fault-note"><span class="note-icon" aria-hidden="true">⚠</span><span><b>Fault test, not a normal connection.</b> Touching the two cable ends together while power is ON simulates a terminal short circuit. To model a lamp or appliance you would connect a load across the leads instead; nothing real is energised.</span></p>
             <div class="lead-row"><div class="lead-icon live-lead"><span></span></div><div class="lead-copy"><strong>Lead A <small>· LIVE</small></strong><span>Drag its exposed tip in the 3D view</span></div><div class="lead-state" id="leadAState">READY</div></div>
             <div class="lead-row"><div class="lead-icon return-lead"><span></span></div><div class="lead-copy"><strong>Lead B <small>· RETURN</small></strong><span>Bring both exposed ends together</span></div><div class="lead-state" id="leadBState">READY</div></div>
             <div class="wire-action-row"><button id="touchWiresBtn" class="primary-action"><span class="action-spark">✳</span> TOUCH WIRE ENDS</button><button id="separateWiresBtn" class="secondary-action">SEPARATE</button></div>
@@ -74,10 +110,45 @@
           </section>
 
           <section class="safety-card"><span class="safety-icon">!</span><div><strong>SIMULATION ONLY · MAINS VOLTAGE CAN KILL</strong><p>This is a visual software model. Never reproduce wire-touching or sparking experiments with a real power supply. Real arc and shock hazards depend on source impedance, contact geometry, insulation, environment and exposure.</p></div></section>
+          <section class="learn-card" aria-labelledby="learnHeading"><h2 id="learnHeading">Learn the electronics</h2><p>Volta Lab is an educational simulator of a battery, a DC-DC converter and a single-phase inverter. These short lessons explain how each block is modelled.</p><ul><li><a href="/learn/">Learning Hub overview</a></li><li><a href="/learn/dc-dc-converter-fundamentals/">DC-DC converter fundamentals</a></li><li><a href="/learn/single-phase-h-bridge-inverter/">Single-phase H-bridge inverter</a></li><li><a href="/learn/battery-equivalent-circuit-model/">Battery equivalent-circuit model</a></li><li><a href="/learn/ac-vs-dc-output/">AC vs DC output</a></li><li><a href="/learn/model-limitations-and-safety/">Model limitations and safety</a></li></ul></section>
         </aside>
       </main>
     </div>
+    <div id="introToast" class="intro-toast" role="region" aria-label="Quick start suggestion" hidden><span>New here? A 30-second Quick Start explains the controls.</span><button id="toastOpen" class="toast-open" type="button">Quick Start</button><button id="toastDismiss" type="button" aria-label="Dismiss quick start suggestion">Dismiss</button></div>
+    <dialog id="helpDialog" class="help-dialog" aria-labelledby="helpTitle">
+      <div class="help-inner">
+        <div class="help-head"><h2 id="helpTitle">Quick Start</h2><button id="helpClose" class="help-close" type="button" aria-label="Close help">Close</button></div>
+        <p>Volta Lab is an educational simulator of a battery, a DC-DC converter and a single-phase inverter. Everything you see is computed by a software model; no real electricity is involved.</p>
+        <h3>Four steps</h3>
+        <ol class="help-steps">
+          <li><strong>Main Power.</strong> Turn the switch ON (Space, the rocker on the machine, or the Main Power switch in the Controls panel). The output stage is disabled until you do.</li>
+          <li><strong>AC or DC.</strong> Pick the output type with the AC / DC buttons, the lever on the machine or the M key. AC is single-phase, two-wire, 50 Hz, shown as RMS volts between the two leads. DC is a steady voltage.</li>
+          <li><strong>Voltage.</strong> Set 0 to 415 V with the slider, the preset buttons, the Up and Down arrow keys (5 V steps) or by dragging the front dial.</li>
+          <li><strong>Cables.</strong> Click or tap one highlighted cable tip, then the other, to bring them together, or drag a tip, or use the Touch wire ends and Separate buttons (T and S). With power ON, touching the ends simulates a terminal short circuit and the model limits the current and then trips.</li>
+        </ol>
+        <div class="help-warning"><p><strong>Simulation only.</strong> A short circuit is a fault, not how you connect a lamp or appliance. Never copy wire-touching or sparking experiments with a real supply: real arc and shock hazards depend on things this model does not represent.</p></div>
+        <h3>Keyboard shortcuts</h3>
+        <table class="shortcut-table"><thead><tr><th scope="col">Key</th><th scope="col">Action</th></tr></thead><tbody>
+          <tr><td><kbd>Space</kbd></td><td>Main power on / off</td></tr>
+          <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>Output voltage +5 V / −5 V (1 V steps while the slider is focused)</td></tr>
+          <tr><td><kbd>M</kbd></td><td>Switch AC / DC</td></tr>
+          <tr><td><kbd>T</kbd></td><td>Touch the cable ends together</td></tr>
+          <tr><td><kbd>S</kbd></td><td>Separate the cable ends</td></tr>
+          <tr><td><kbd>X</kbd></td><td>Emergency power off</td></tr>
+          <tr><td><kbd>R</kbd></td><td>Reset the camera view</td></tr>
+          <tr><td><kbd>P</kbd></td><td>Open / close the Controls panel</td></tr>
+          <tr><td><kbd>?</kbd></td><td>Open this help</td></tr>
+          <tr><td><kbd>Esc</kbd></td><td>Close the panel or this help</td></tr>
+        </tbody></table>
+        <h3>Learn more</h3>
+        <ul class="help-links">
+          <li><a href="/learn/">Learning Hub</a></li>
+          <li><a href="/learn/model-limitations-and-safety/">Model limitations and safety</a></li>
+        </ul>
+      </div>
+    </dialog>
+    <noscript><p style="position:fixed;inset:auto 16px 16px 16px;z-index:99;padding:14px;border:1px solid #ffc36b;border-radius:10px;background:#0f1722;color:#f2f6fa;font:14px/1.5 Inter,system-ui,sans-serif">Volta Lab needs JavaScript and WebGL to run the 3D simulator. The <a href="/learn/" style="color:#60c7f2">Learning Hub</a> explains the electronics without it.</p></noscript>
     <div id="srStatus" class="sr-only" role="status" aria-live="polite"></div>
-    <script type="module" src="/src/main.ts"></script>
+    <script type="module" src="/src/entry.ts"></script>
   </body>
 </html>

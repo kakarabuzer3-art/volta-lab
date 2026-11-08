@@ -1,0 +1,60 @@
+/* ==========================================================================
+   Volta Lab design tokens (shared by the simulator and the Learning Hub).
+   Palette = the proposed Midnight Graphite system. Contrast of every text and
+   control pairing below is checked by `src/site.test.ts` (WCAG 2.x ratios),
+   so changing a value here that breaks a pairing fails `npm test`.
+   Colour semantics: cyan = information / interaction, mint = active / healthy,
+   amber = warning / limits, red = fault. State is never colour alone: each
+   state also has a text label or symbol in the markup.
+   ========================================================================== */
+:root {
+  color-scheme: dark;
+
+  /* Palette */
+  --c-midnight: #070b12;
+  --c-graphite: #0f1722;
+  --c-raised: #151f2b;
+  --c-border: #29394b;
+  --c-text: #f2f6fa;
+  --c-text-2: #a6b4c2;
+  --c-cyan: #60c7f2;
+  --c-mint: #4be1ac;
+  --c-amber: #ffc36b;
+  --c-red: #ff6b76;
+
+  /* Semantic tokens (use these in components) */
+  --bg: var(--c-midnight);
+  --surface: var(--c-graphite);
+  --surface-raised: var(--c-raised);
+  --border: var(--c-border);                 /* decorative dividers and card outlines */
+  --border-control: #6f849a;                 /* outline of interactive controls (>= 3:1 on surfaces, WCAG 1.4.11) */
+  --text-primary: var(--c-text);
+  --text-secondary: var(--c-text-2);
+  --text-tertiary: #8a9bad;                  /* metadata; >= 4.5:1 on every surface */
+  --primary: var(--c-cyan);
+  --success: var(--c-mint);
+  --warning: var(--c-amber);
+  --danger: var(--c-red);
+  --focus: #8fdcff;                          /* focus ring, >= 3:1 against every surface */
+
+  /* Type scale: nothing below 12px. Body 14-16px, secondary 13-14px, metadata >= 12px. */
+  --font-ui: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'DM Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --fs-meta: 0.75rem;     /* 12px */
+  --fs-small: 0.8125rem;  /* 13px */
+  --fs-body: 0.875rem;    /* 14px */
+  --fs-base: 1rem;        /* 16px */
+  --fs-h3: 1.0625rem;
+  --fs-h2: clamp(1.25rem, 1.1rem + 0.6vw, 1.5rem);
+  --fs-h1: clamp(1.125rem, 1rem + 0.7vw, 1.5rem);
+
+  /* Shape and spacing */
+  --radius: 12px;
+  --radius-sm: 8px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --target: 44px;         /* primary touch target (WCAG 2.2 AA minimum is 24px; 44-48px aimed at on touch) */
+}

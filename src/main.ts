@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import './style.css';
 
 import {
   Engine, MAX_SETPOINT_V, deepFreeze, outputStageDescription, validateLoad, acInputSupplyLoad, capacitiveLoad, dcModuleLoad, dcMotorLoad, inductiveLoad, resistiveLoad, rlcLoad,
@@ -58,8 +57,10 @@ const detailCamera = new THREE.Vector3(-0.1, 0.22, 5.75);
 const detailTarget = new THREE.Vector3(-0.1, -0.05, 0);
 camera.position.copy(defaultCamera);
 camera.lookAt(defaultTarget);
+/** Rendering resolution: up to 2x on desktop; capped at 1.5x on touch-first devices, where fill rate (GPU and battery) is the limit. */
+function renderPixelRatio() { return Math.min(window.devicePixelRatio || 1, window.matchMedia('(pointer: coarse)').matches ? 1.5 : 2); }
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setPixelRatio(renderPixelRatio());
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.08;
@@ -78,8 +79,14 @@ function sharpen(texture: THREE.CanvasTexture) {
   return texture;
 }
 
+// prefers-reduced-motion is honoured in the scene too (CSS alone cannot stop WebGL animation): no camera inertia, no pulsing
+// lights or tip rings, instant (not eased) switch/lever movement and a steady, non-flickering fault flash with no drifting particles.
+const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+let reduceMotion = reducedMotionQuery.matches;
+canvas.dataset.reducedMotion = String(reduceMotion);
+
 const controls = new OrbitControls(camera, canvas);
-controls.enableDamping = true;
+controls.enableDamping = !reduceMotion;
 controls.dampingFactor = 0.065;
 controls.target.copy(defaultTarget);
 controls.minDistance = 5.2;
@@ -110,7 +117,7 @@ function stopCameraMomentum() {
   controls.enableDamping = false;
   controls.update(); // flushes the pending rotate/zoom/pan deltas to zero
   camera.position.copy(p); controls.target.copy(t);
-  controls.enableDamping = true;
+  controls.enableDamping = !reduceMotion;
   controls.update(); // re-derives orientation from the restored position; deltas are zero, so nothing moves
 }
 function setCameraMode(mode: CameraMode) {
@@ -802,6 +809,9 @@ function setVoltage(value: number) {
   });
 }
 function announce(message: string) { srStatus.textContent = message; }
+const modeAcBtn = $('modeAcBtn') as HTMLButtonElement;
+const modeDcBtn = $('modeDcBtn') as HTMLButtonElement;
+const modeDesc = $('modeDesc');
 function setMode(mode: SourceMode) {
   sourceMode = mode;
   modeLeverTarget = mode === 'AC' ? MODE_LEVER_ANGLE : -MODE_LEVER_ANGLE;
@@ -811,6 +821,8 @@ function setMode(mode: SourceMode) {
   metricVoltageUnit.textContent = mode === 'AC' ? 'V RMS' : 'V DC';
   floatingUnit.textContent = mode === 'AC' ? 'V RMS' : 'V DC';
   canvas.dataset.sourceMode = mode;
+  for (const b of [modeAcBtn, modeDcBtn]) { const on = b.dataset.mode === mode; b.setAttribute('aria-checked', String(on)); b.tabIndex = on ? 0 : -1; }
+  modeDesc.textContent = mode === 'AC' ? 'AC: single-phase, two-wire, 50 Hz' : 'DC: steady voltage, 0 Hz';
   announce(mode === 'AC' ? 'Source mode AC, single-phase two-wire, 50 hertz, voltage shown as RMS between the two leads.' : 'Source mode DC, steady voltage, frequency 0 hertz.');
 }
 function setPower(value: boolean) {
@@ -905,7 +917,7 @@ function updateTipVisuals(elapsed: number) {
     const v = tipRings[i];
     v.ring.quaternion.copy(camera.quaternion); v.glow.quaternion.copy(camera.quaternion); // always face the viewer
     const selected = selectedTip === i, hover = hoverTip === i || activeTip === i;
-    const pulse = 0.5 + 0.5 * Math.sin(elapsed * 2.4 + i * 1.7);
+    const pulse = reduceMotion ? 0.5 : 0.5 + 0.5 * Math.sin(elapsed * 2.4 + i * 1.7);
     // idle: a calm, always-visible ring (this is the touch-device cue); hover: brighter green; selected: amber + glow.
     tmpColor.set(selected ? '#ffc94d' : hover ? '#4be1ac' : '#6fb7d6');
     v.ringMat.color.copy(tmpColor); v.glowMat.color.copy(tmpColor);
@@ -1021,6 +1033,15 @@ applyCameraControls();
 paintCameraButton();
 
 powerBtn.addEventListener('click', () => setPower(!isOn));
+// AC / DC radio group (synchronised with the 3D lever and the M key through setMode): click, or arrow keys with roving focus.
+for (const b of [modeAcBtn, modeDcBtn]) b.addEventListener('click', () => setMode(b.dataset.mode === 'DC' ? 'DC' : 'AC'));
+document.getElementById('modeAcBtn')!.parentElement!.addEventListener('keydown', (event) => {
+  const key = (event as KeyboardEvent).key;
+  if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(key)) return;
+  event.preventDefault(); event.stopPropagation();
+  const next = key === 'Home' ? 'AC' : key === 'End' ? 'DC' : sourceMode === 'AC' ? 'DC' : 'AC'; // two options: any arrow toggles
+  setMode(next); (next === 'AC' ? modeAcBtn : modeDcBtn).focus();
+});
 voltageSlider.addEventListener('input', () => setVoltage(Number(voltageSlider.value)));
 document.querySelectorAll<HTMLButtonElement>('[data-voltage]').forEach((button) => button.addEventListener('click', () => setVoltage(Number(button.dataset.voltage))));
 $('touchWiresBtn').addEventListener('click', touchWires);
@@ -1038,16 +1059,53 @@ $('explodeBtn').addEventListener('click', () => {
 // Control panel drawer: small corner button opens / closes it (also P / Escape).
 const stageEl = document.querySelector('.stage') as HTMLElement;
 const panelToggle = $('panelToggle') as HTMLButtonElement;
+const controlPanel = $('controlPanel');
+controlPanel.tabIndex = -1; // focusable by script only: lets focus move into the drawer without landing on a button
 function setPanel(open: boolean) {
+  const was = stageEl.classList.contains('panel-open');
+  const focusWasInside = controlPanel.contains(document.activeElement);
   stageEl.classList.toggle('panel-open', open);
   panelToggle.setAttribute('aria-expanded', String(open));
   panelToggle.setAttribute('aria-label', open ? 'Close control panel' : 'Open control panel');
+  if (open && !was) controlPanel.focus({ preventScroll: true });             // opening: move focus into the panel (its first Tab stop is the Main Power switch)
+  else if (!open && was && focusWasInside) panelToggle.focus({ preventScroll: true }); // closing: never leave focus in a hidden panel
 }
 panelToggle.addEventListener('click', () => setPanel(!stageEl.classList.contains('panel-open')));
 
+// ---- Help / Quick Start --------------------------------------------------------------------------------------
+// A native <dialog> (focus trap, Escape and focus restore come from the platform). The first-visit suggestion is a small
+// dismissible toast, never a forced modal; it is shown once per browser (localStorage is optional and may throw).
+const helpDialog = $('helpDialog') as HTMLDialogElement;
+const helpBtn = $('helpBtn') as HTMLButtonElement;
+const introToast = $('introToast');
+const INTRO_KEY = 'voltalab.intro.seen';
+function introSeen(): boolean { try { return localStorage.getItem(INTRO_KEY) === '1'; } catch { return false; } }
+function rememberIntro() { try { localStorage.setItem(INTRO_KEY, '1'); } catch { /* storage unavailable: the toast may show again, which is harmless */ } }
+let introTimer = 0;
+function hideIntro() { window.clearTimeout(introTimer); introToast.hidden = true; }
+// The suggestion fades away on its own, but never while someone is pointing at it or has keyboard focus inside it (WCAG 2.2.1 spirit).
+function armIntroTimer() { window.clearTimeout(introTimer); introTimer = window.setTimeout(hideIntro, 20000); }
+introToast.addEventListener('pointerenter', () => window.clearTimeout(introTimer));
+introToast.addEventListener('focusin', () => window.clearTimeout(introTimer));
+introToast.addEventListener('pointerleave', () => { if (!introToast.hidden && !introToast.contains(document.activeElement)) armIntroTimer(); });
+introToast.addEventListener('focusout', () => { if (!introToast.hidden) armIntroTimer(); });
+function openHelp() { hideIntro(); if (!helpDialog.open) helpDialog.showModal(); }
+helpBtn.addEventListener('click', openHelp);
+$('helpClose').addEventListener('click', () => helpDialog.close());
+helpDialog.addEventListener('click', (event) => { if (event.target === helpDialog) helpDialog.close(); }); // click on the backdrop
+helpDialog.addEventListener('close', () => helpBtn.focus());
+$('toastOpen').addEventListener('click', openHelp);
+$('toastDismiss').addEventListener('click', hideIntro);
+if (!introSeen()) {
+  introToast.hidden = false;
+  rememberIntro();
+  armIntroTimer();
+}
+
 // Keyboard shortcuts: Space power, arrows voltage, T connect tips, S separate,
-// X emergency power-off, M switch AC/DC, R reset camera.
+// X emergency power-off, M switch AC/DC, R reset camera, P panel, ? help.
 window.addEventListener('keydown', (event) => {
+  if (helpDialog.open) return; // the dialog owns the keyboard while it is open (Escape closes it natively)
   const target = event.target as HTMLElement;
   if (target.matches('input,textarea,button,select') && (event.key === ' ' || event.key.startsWith('Arrow'))) return;
   if (event.code === 'Space') { event.preventDefault(); setPower(!isOn); }
@@ -1060,13 +1118,24 @@ window.addEventListener('keydown', (event) => {
   else if (event.key.toLowerCase() === 'r') resetCamera();
   else if (event.key.toLowerCase() === 'p') setPanel(!stageEl.classList.contains('panel-open'));
   else if (event.key === 'Escape') setPanel(false);
+  else if (event.key === '?') openHelp();
+});
+
+// The top bar can wrap (phones, large text, browser zoom), so its real height drives the layout instead of a fixed number.
+const topbarEl = document.querySelector('.topbar') as HTMLElement;
+function syncTopbarHeight() { document.documentElement.style.setProperty('--topbar-h', `${Math.ceil(topbarEl.getBoundingClientRect().height)}px`); }
+new ResizeObserver(syncTopbarHeight).observe(topbarEl);
+syncTopbarHeight();
+reducedMotionQuery.addEventListener('change', () => {
+  reduceMotion = reducedMotionQuery.matches; canvas.dataset.reducedMotion = String(reduceMotion);
+  controls.enableDamping = !reduceMotion;
 });
 
 function resize() {
   // Whole-pixel sizes avoid the sub-pixel resampling that makes a canvas look soft.
   const width = Math.max(1, Math.round(sceneWrap.clientWidth));
   const height = Math.max(1, Math.round(sceneWrap.clientHeight));
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setPixelRatio(renderPixelRatio());
   renderer.setSize(width, height, false);
   camera.aspect = width / height;
   // Narrow viewports widen the vertical FOV so the machine + both cable tips stay in frame.
@@ -1095,18 +1164,21 @@ paintMachineDisplay(snap);
 
 const clock = new THREE.Clock();
 let lastHudUpdate = 0;
+// Browsers already pause requestAnimationFrame in a hidden tab; this resets the clock on return so the simulation never sees one long frame.
+document.addEventListener('visibilitychange', () => { if (!document.hidden) clock.getDelta(); });
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.04);
   const elapsed = clock.elapsedTime;
   controls.update();
   updateTipVisuals(elapsed);
-  rocker.rotation.x += (rockerTarget - rocker.rotation.x) * Math.min(1, dt * 18); // smooth rocker tilt
-  modeLever.rotation.z += (modeLeverTarget - modeLever.rotation.z) * Math.min(1, dt * 16); // smooth AC/DC lever
+  const ease = reduceMotion ? 1 : 0; // reduced motion: switches jump to their position instead of easing
+  rocker.rotation.x += (rockerTarget - rocker.rotation.x) * Math.max(ease, Math.min(1, dt * 18)); // smooth rocker tilt
+  modeLever.rotation.z += (modeLeverTarget - modeLever.rotation.z) * Math.max(ease, Math.min(1, dt * 16)); // smooth AC/DC lever
 
   // The object remains an enclosed machine; only studio lights and status LEDs move.
-  frontFill.intensity = isOn ? 24 + Math.sin(elapsed * 3.4) * 1.2 : 18;
-  rimLight.intensity = isOn ? 20 + Math.sin(elapsed * 2.7) * 1.4 : 13;
+  frontFill.intensity = isOn ? 24 + (reduceMotion ? 0 : Math.sin(elapsed * 3.4) * 1.2) : 18;
+  rimLight.intensity = isOn ? 20 + (reduceMotion ? 0 : Math.sin(elapsed * 2.7) * 1.4) : 13;
   const contact = hasContact();
   // Single authoritative electrical state: inputs go in, the deterministic engine advances in fixed
   // steps (decoupled from this render loop), and everything below only reads the Snapshot.
@@ -1129,6 +1201,7 @@ function animate() {
     sparkMaterial.opacity = Math.max(0, sparkLife / sparkLifeMax) * (0.28 + sparkIntensity * 0.72);
     const attr = sparkGeometry.attributes.position as THREE.BufferAttribute;
     for (let i = 0; i < sparkParticleCount; i++) {
+      if (reduceMotion) break; // no drifting particles
       sparkPositions[i * 3] += sparkVelocities[i].x * dt;
       sparkPositions[i * 3 + 1] += sparkVelocities[i].y * dt;
       sparkPositions[i * 3 + 2] += sparkVelocities[i].z * dt;
@@ -1137,7 +1210,7 @@ function animate() {
     attr.needsUpdate = true;
     for (const child of boltGroup.children) {
       const line = child as THREE.Line;
-      (line.material as THREE.LineBasicMaterial).opacity = Math.max(0, sparkLife / sparkLifeMax) * (0.3 + 0.7 * sparkIntensity) * (0.62 + Math.random() * 0.38);
+      (line.material as THREE.LineBasicMaterial).opacity = Math.max(0, sparkLife / sparkLifeMax) * (0.3 + 0.7 * sparkIntensity) * (reduceMotion ? 0.8 : 0.62 + Math.random() * 0.38); // reduced motion: steady, no flicker (WCAG 2.3.1/2.3.3)
     }
   } else {
     sparkMaterial.opacity = 0;

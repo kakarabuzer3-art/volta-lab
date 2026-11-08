@@ -7,11 +7,15 @@ const { chromium } = require('playwright');
 const BASE = process.env.BASE_URL || 'http://localhost:4173/';
 const SHOT = process.env.SHOT_DIR || '.';
 const results = []; let failed = 0;
+// The first-visit "Quick Start" toast is dismissed in every context except the one that tests it, so it cannot sit over the scene.
+const SEEN_INIT = () => { try { localStorage.setItem('voltalab.intro.seen', '1'); } catch (e) { /* ignore */ } };
 const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}  ${name}${extra ? '  — ' + extra : ''}`); if (!cond) failed++; };
 
 (async () => {
   const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const mainCtx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await mainCtx.addInitScript(SEEN_INIT);
+  const page = await mainCtx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
@@ -243,6 +247,7 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
 
   // ---------------------------- touch (single-finger tap) in its own context ----------------------------
   const tctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, hasTouch: true });
+  await tctx.addInitScript(SEEN_INIT);
   const tpage = await tctx.newPage();
   await tpage.goto(BASE); await tpage.waitForFunction(() => !!window.voltaLab, null, { timeout: 30000 }); await tpage.waitForTimeout(1200);
   const tA = gripA(), tB = gripB();
@@ -329,6 +334,7 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
   // This is AUTOMATED EMULATION in desktop Chromium with software WebGL — it is NOT a physical-device test.
   {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, deviceScaleFactor: 1 });
+    await ctx.addInitScript(SEEN_INIT);
     const tp = await ctx.newPage(); const cdp = await ctx.newCDPSession(tp);
     tp.on('pageerror', (e) => errors.push('pageerror(touch): ' + e.message));
     tp.on('console', (m) => { if (m.type() === 'error') errors.push('console(touch): ' + m.text()); });
@@ -462,6 +468,136 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
     ok(`responsive ${w}×${h}: no horizontal page scroll`, !overflow);
     await page.screenshot({ path: `${SHOT}/browser-check-${w}.png` });
+  }
+
+  // ================= Premium UX / accessibility / SEO pass =================
+  // (Automated checks in desktop Chromium with software WebGL. They do not replace a screen-reader or physical-device audit.)
+  const gotoReady = async (pg) => { await pg.goto(BASE); await pg.waitForFunction(() => !!window.voltaLab, null, { timeout: 40000 }); await pg.waitForTimeout(800); };
+  const attr = (pg, sel, a) => pg.evaluate(([s2, a2]) => document.querySelector(s2).getAttribute(a2), [sel, a]);
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } }); await ctx.addInitScript(SEEN_INIT);
+    const pg = await ctx.newPage(); pg.on('pageerror', (e) => errors.push('pageerror(ux): ' + e.message));
+    await gotoReady(pg);
+    // loading placeholder is gone once the 3D chunk has started
+    ok('3D chunk loaded: loading placeholder removed', (await pg.locator('#sceneLoading').count()) === 0);
+    // AC / DC radio group is synchronised with the 3D lever state, the M key and aria
+    const modeState = () => pg.evaluate(() => ({ canvas: document.getElementById('sceneCanvas').dataset.sourceMode, ac: document.getElementById('modeAcBtn').getAttribute('aria-checked'), dc: document.getElementById('modeDcBtn').getAttribute('aria-checked'), unit: document.getElementById('voltageUnit').textContent, desc: document.getElementById('modeDesc').textContent }));
+    await pg.click('#panelToggle'); await pg.waitForTimeout(400);
+    ok('opening the panel moves focus into it', (await pg.evaluate(() => document.activeElement && document.activeElement.id)) === 'controlPanel');
+    await pg.click('#modeDcBtn');
+    let m1 = await modeState();
+    ok('AC/DC buttons: DC click switches mode (scene, aria-checked, unit text, description)', m1.canvas === 'DC' && m1.dc === 'true' && m1.ac === 'false' && /DC/.test(m1.unit) && /DC/.test(m1.desc), JSON.stringify(m1));
+    await pg.keyboard.press('m'); m1 = await modeState();
+    ok('M key stays synchronised with the AC/DC buttons', m1.canvas === 'AC' && m1.ac === 'true' && m1.dc === 'false');
+    await pg.focus('#modeAcBtn'); await pg.keyboard.press('ArrowRight'); m1 = await modeState();
+    const focusedId = await pg.evaluate(() => document.activeElement.id);
+    ok('AC/DC radio group: arrow key switches mode and moves focus (roving tabindex)', m1.canvas === 'DC' && focusedId === 'modeDcBtn' && (await attr(pg, '#modeDcBtn', 'tabindex')) === '0' && (await attr(pg, '#modeAcBtn', 'tabindex')) === '-1');
+    await pg.keyboard.press('ArrowLeft'); m1 = await modeState(); ok('AC/DC radio group: arrow back to AC', m1.canvas === 'AC' && m1.ac === 'true');
+    // Main power switch semantic state + keyboard
+    await pg.focus('#powerBtn'); await pg.keyboard.press('Space');
+    // The ARIA state is synchronous; the engine input is applied on the next rendered frame, which can be seconds away under software WebGL, so poll for it.
+    await pg.waitForFunction(() => window.voltaLab.snapshot().inputs.powerOn === true, null, { timeout: 30000 }).catch(() => {});
+    ok('Main Power switch: Space on the focused switch turns power ON and exposes aria-checked=true', (await attr(pg, '#powerBtn', 'aria-checked')) === 'true' && (await pg.evaluate(() => window.voltaLab.snapshot().inputs.powerOn)));
+    await pg.keyboard.press('Space');
+    ok('Main Power switch: toggles back OFF', (await attr(pg, '#powerBtn', 'aria-checked')) === 'false');
+    // Escape closes the panel and returns focus to its toggle
+    await pg.focus('#voltageSlider'); await pg.keyboard.press('Escape'); await pg.waitForTimeout(300);
+    ok('Escape closes the panel and returns focus to the panel toggle', (await attr(pg, '#panelToggle', 'aria-expanded')) === 'false' && (await pg.evaluate(() => document.activeElement.id)) === 'panelToggle');
+    // closed panel is not reachable by keyboard
+    const hiddenReachable = await pg.evaluate(() => { const panel = document.getElementById('controlPanel'); return getComputedStyle(panel).visibility !== 'hidden'; });
+    ok('closed panel is visibility:hidden (not tabbable)', !hiddenReachable);
+    // Help dialog: ? opens, focus moves inside, shortcuts are suspended, Escape closes and focus returns
+    await pg.keyboard.press('?'); await pg.waitForTimeout(300);
+    const dlg = await pg.evaluate(() => ({ open: document.getElementById('helpDialog').open, inside: document.getElementById('helpDialog').contains(document.activeElement) }));
+    ok('Help dialog opens with ? and focus moves inside it', dlg.open && dlg.inside, JSON.stringify(dlg));
+    await pg.keyboard.press('m'); ok('keyboard shortcuts are suspended while the Help dialog is open', (await pg.evaluate(() => document.getElementById('sceneCanvas').dataset.sourceMode)) === 'AC');
+    ok('Help dialog lists the shortcuts in a real table with header cells', (await pg.locator('#helpDialog table th[scope="col"]').count()) === 2 && (await pg.locator('#helpDialog kbd').count()) >= 10);
+    await pg.keyboard.press('Escape'); await pg.waitForTimeout(300);
+    ok('Escape closes Help and returns focus to the Help button', !(await pg.evaluate(() => document.getElementById('helpDialog').open)) && (await pg.evaluate(() => document.activeElement.id)) === 'helpBtn');
+    // heading structure and accessible names
+    const struct = await pg.evaluate(() => {
+      const hs = [...document.querySelectorAll('h1,h2,h3')].map((h) => Number(h.tagName[1]));
+      let skip = false; for (let i = 1; i < hs.length; i++) if (hs[i] - hs[i - 1] > 1) skip = true;
+      const unnamed = [...document.querySelectorAll('button, [role="switch"], [role="radio"], input')].filter((b) => { const n = (b.getAttribute('aria-label') || b.textContent || '').trim() || (b.id && document.querySelector(`label[for="${b.id}"]`)?.textContent.trim()) || b.getAttribute('aria-labelledby'); return !n; }).map((b) => b.id || b.className);
+      return { h1: hs.filter((x) => x === 1).length, skip, unnamed, lang: document.documentElement.lang, title: document.title, canonical: document.querySelector('link[rel=canonical]')?.href, ld: !!document.querySelector('script[type="application/ld+json"]') };
+    });
+    ok('rendered DOM: exactly one H1 and no skipped heading levels', struct.h1 === 1 && !struct.skip, JSON.stringify(struct));
+    ok('rendered DOM: every button, switch, radio and input has an accessible name', struct.unnamed.length === 0, struct.unnamed.join(','));
+    ok('rendered DOM: lang, title, canonical and structured data present', struct.lang === 'en' && struct.title === 'Volta Lab | Interactive 3D Power Electronics Simulator' && /\/$/.test(struct.canonical) && struct.ld);
+    await ctx.close();
+  }
+  // First visit: a small dismissible suggestion (not a modal), shown once
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const pg = await ctx.newPage(); await gotoReady(pg);
+    ok('first visit: Quick Start suggestion shown, not a modal', (await pg.locator('#introToast').isVisible()) && !(await pg.evaluate(() => document.getElementById('helpDialog').open)));
+    await pg.click('#toastDismiss'); ok('first visit: suggestion can be dismissed', !(await pg.locator('#introToast').isVisible()));
+    await pg.reload(); await pg.waitForFunction(() => !!window.voltaLab); await pg.waitForTimeout(600);
+    ok('second visit: suggestion is not shown again', !(await pg.locator('#introToast').isVisible()));
+    await ctx.close();
+  }
+  // Reduced motion: honoured by the 3D scene, not only by CSS
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' }); await ctx.addInitScript(SEEN_INIT);
+    const pg = await ctx.newPage(); await gotoReady(pg);
+    ok('prefers-reduced-motion: scene reports reduced motion', (await attr(pg, '#sceneCanvas', 'data-reduced-motion')) === 'true');
+    const pos = () => pg.evaluate(() => [...['coordX', 'coordY', 'coordZ']].map((i) => Number(document.getElementById(i).textContent)));
+    await pg.mouse.move(700, 300); await pg.mouse.down(); await pg.mouse.move(820, 330, { steps: 6 }); await pg.mouse.up();
+    await pg.waitForTimeout(1500); const a = await pos(); await pg.waitForTimeout(2500); const b = await pos();
+    ok('prefers-reduced-motion: no camera inertia after releasing a drag', Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < 0.005, `drift ${Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]).toFixed(4)}`);
+    await ctx.close();
+    const ctx2 = await browser.newContext({ viewport: { width: 1440, height: 900 } }); await ctx2.addInitScript(SEEN_INIT);
+    const pg2 = await ctx2.newPage(); await gotoReady(pg2);
+    ok('default motion setting: scene reports reduced motion = false', (await attr(pg2, '#sceneCanvas', 'data-reduced-motion')) === 'false');
+    await ctx2.close();
+  }
+  // Layout at the four target viewports: no overflow, no overlapping controls, readable targets
+  for (const [w, h, name] of [[1440, 900, 'desktop'], [820, 1180, 'tablet'], [390, 844, 'phone'], [320, 640, 'narrow']]) {
+    const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: w < 900 }); await ctx.addInitScript(SEEN_INIT);
+    const pg = await ctx.newPage(); await gotoReady(pg);
+    for (const open of [false, true]) {
+      if (open) { await pg.click('#panelToggle'); await pg.waitForTimeout(700); }
+      const lay = await pg.evaluate(() => {
+        const vis = (s) => { const e = document.querySelector(s); if (!e) return null; const r = e.getBoundingClientRect(); return r.width && r.height ? { s, l: r.left, t: r.top, r: r.right, b: r.bottom } : null; };
+        const ids = ['.brand', '.topnav', '.sim-badge', '#cameraModeBtn', '#explodeBtn', '#helpBtn', '#panelToggle'].map(vis).filter(Boolean);
+        const overlaps = [];
+        for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) { const a = ids[i], b = ids[j]; if (a.l < b.r - 0.5 && b.l < a.r - 0.5 && a.t < b.b - 0.5 && b.t < a.b - 0.5) overlaps.push(a.s + '×' + b.s); }
+        const bar = document.querySelector('.topbar').getBoundingClientRect(), panel = document.getElementById('controlPanel').getBoundingClientRect();
+        const open = document.querySelector('.stage').classList.contains('panel-open');
+        const offscreen = ids.filter((r) => r.l < -0.5 || r.r > innerWidth + 0.5).map((r) => r.s);
+        return { overflow: document.documentElement.scrollWidth > innerWidth + 1, overlaps, offscreen, panelBelowBar: !open || panel.top >= bar.bottom - 1, topbarH: Math.round(bar.height), cssTopbarH: getComputedStyle(document.documentElement).getPropertyValue('--topbar-h') };
+      });
+      ok(`layout ${name} ${w}×${h} panel ${open ? 'open' : 'closed'}: no horizontal overflow, no off-screen or overlapping top-bar controls, panel clear of the top bar`, !lay.overflow && !lay.overlaps.length && !lay.offscreen.length && lay.panelBelowBar, JSON.stringify(lay));
+    }
+    // touch-target sizes of primary controls (WCAG 2.2 AA minimum is 24 CSS px; this project aims for 44)
+    const small = await pg.evaluate(() => ['#powerBtn', '#modeAcBtn', '#modeDcBtn', '#touchWiresBtn', '#separateWiresBtn', '#panelToggle', '#helpBtn', '#cameraModeBtn', '#explodeBtn', '[data-voltage]'].flatMap((s) => [...document.querySelectorAll(s)].map((e) => { const r = e.getBoundingClientRect(); return { s, id: e.id, w: Math.round(r.width), h: Math.round(r.height) }; })).filter((r) => r.w < 44 || r.h < 44));
+    ok(`touch targets ${name} ${w}×${h}: primary controls are at least 44 × 44 CSS px`, small.length === 0, JSON.stringify(small));
+    await pg.screenshot({ path: `${SHOT}/ux-${name}-${w}.png` });
+    await ctx.close();
+  }
+  // Crawlable files and Learning Hub (served by the same static server)
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } }); const pg = await ctx.newPage();
+    const origin = new URL(BASE).origin;
+    const getStatus = async (path) => { const r = await ctx.request.get(origin + path); return { status: r.status(), type: r.headers()['content-type'] || '', text: await r.text() }; };
+    const robots = await getStatus('/robots.txt'); ok('GET /robots.txt → 200 with Sitemap line', robots.status === 200 && /Sitemap:/.test(robots.text));
+    const sm = await getStatus('/sitemap.xml'); const locs = [...sm.text.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
+    ok('GET /sitemap.xml → 200 and lists 7 URLs', sm.status === 200 && locs.length === 7, `${locs.length} URLs`);
+    for (const f of ['/favicon.svg', '/apple-touch-icon.png', '/og-image.png', '/site.webmanifest', '/learn/learn.css']) { const r = await getStatus(f); ok(`GET ${f} → 200`, r.status === 200, `${r.status} ${r.type}`); }
+    const hubLinks = [];
+    for (const loc of locs) {
+      const path = new URL(loc).pathname; if (path === '/') continue;
+      await pg.goto(origin + path); await pg.waitForTimeout(150);
+      const info = await pg.evaluate(() => ({ h1: document.querySelectorAll('h1').length, title: document.title, overflow: document.documentElement.scrollWidth > innerWidth + 1, canonical: document.querySelector('link[rel=canonical]')?.href, links: [...document.querySelectorAll('main a[href^="/"]')].map((a) => a.getAttribute('href')), small: [...document.querySelectorAll('.site-nav a, .pager a, .cta')].filter((a) => { const r = a.getBoundingClientRect(); return r.height < 44; }).length }));
+      ok(`Learning page ${path}: one H1, title, canonical = sitemap URL, no overflow at 390px, tap targets ≥ 44px`, info.h1 === 1 && /\| Volta Lab$/.test(info.title) && info.canonical === loc && !info.overflow && info.small === 0, JSON.stringify({ ...info, links: info.links.length }));
+      hubLinks.push(...info.links);
+    }
+    const bad = []; for (const l of new Set(hubLinks)) { const r = await getStatus(l); if (r.status !== 200) bad.push(l + ':' + r.status); }
+    ok('every internal link on the Learning Hub resolves with HTTP 200', bad.length === 0, bad.join(','));
+    await pg.goto(origin + '/learn/dc-dc-converter-fundamentals/'); await pg.setViewportSize({ width: 320, height: 640 }); await pg.waitForTimeout(200);
+    ok('Learning page at 320px: no horizontal overflow', !(await pg.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)));
+    await pg.screenshot({ path: `${SHOT}/ux-learn-320.png`, fullPage: false });
+    await ctx.close();
   }
   const real = errors.filter((e) => !/ERR_TUNNEL|ERR_NAME_NOT_RESOLVED|fonts\.g/.test(e));
   ok('no JavaScript console/page errors (blocked external font requests ignored)', real.length === 0, real.slice(0, 3).join(' | '));
