@@ -47,7 +47,7 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
   // The app pulls the rest position of the cable tips in on narrow screens so both stay visible (see updateTipRestX in main.ts).
   const restX = (vw, vh) => vw / vh >= 1.45 ? 2.68 : Math.min(2.68, Math.max(0.9, Math.tan(fovFor(vw, vh) * Math.PI / 360) * (vw / vh) * Math.hypot(0.2, 0.45 + 1.09, 7.5 - 1.32) - 0.3));
   const gripAt = (vw, vh) => [project([-restX(vw, vh) + 0.17, -1.09, 1.32], vw, vh), project([restX(vw, vh) - 0.17, -1.09, 1.32], vw, vh)];
-  const cam = async () => page.evaluate(() => ({ x: +document.getElementById('coordX').textContent, y: +document.getElementById('coordY').textContent, z: +document.getElementById('coordZ').textContent }));
+  const cam = async () => page.evaluate(() => (() => { const c = document.getElementById('sceneCanvas').dataset.cameraPosition.split(',').map(Number); return { x: c[0], y: c[1], z: c[2] }; })());
   const dist = (c, t = DEFAULT_TARGET) => Math.hypot(c.x - t[0], c.y - t[1], c.z - t[2]);
   const moved = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
   const settle = (ms = 700) => page.waitForTimeout(ms);
@@ -343,7 +343,7 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
     const tap = async (q) => { await touch('touchStart', [q]); await touch('touchEnd', []); };
     const sel = () => tp.evaluate(() => document.getElementById('sceneCanvas').dataset.wireSelected);
     const tconn = () => tp.evaluate(() => window.voltaLab.snapshot().inputs.connection);
-    const tcam = () => tp.evaluate(() => ({ x: +document.getElementById('coordX').textContent, y: +document.getElementById('coordY').textContent, z: +document.getElementById('coordZ').textContent }));
+    const tcam = () => tp.evaluate(() => (() => { const c = document.getElementById('sceneCanvas').dataset.cameraPosition.split(',').map(Number); return { x: c[0], y: c[1], z: c[2] }; })());
     const tmode = () => tp.evaluate(() => document.getElementById('sceneCanvas').dataset.cameraMode);
     const thint = () => tp.evaluate(() => { const h = document.getElementById('wireHint'); return { shown: h.classList.contains('show'), text: h.textContent }; });
     const twait = (fn) => tp.waitForFunction(`(${fn.toString()})(window.voltaLab.snapshot())`, null, { timeout: 30000 });
@@ -381,12 +381,12 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
       pinch: async () => { await touch('touchStart', [{ x: MID.x - 30, y: MID.y }, { x: MID.x + 30, y: MID.y }]); for (let i = 1; i <= 10; i++) await touch('touchMove', [{ x: MID.x - 30 - 8 * i, y: MID.y }, { x: MID.x + 30 + 8 * i, y: MID.y }]); await touch('touchEnd', []); },
       pan: async () => { await touch('touchStart', [{ x: MID.x - 30, y: MID.y }, { x: MID.x + 30, y: MID.y }]); for (let i = 1; i <= 10; i++) await touch('touchMove', [{ x: MID.x - 30 + 8 * i, y: MID.y + 6 * i }, { x: MID.x + 30 + 8 * i, y: MID.y + 6 * i }]); await touch('touchEnd', []); },
     };
-    // Camera state is read from two READ-ONLY views the app already renders: the position HUD (coordX/Y/Z) and `data-camera-target`
+    // Camera state is read from two READ-ONLY views the app already renders: the position string `data-camera-position` and `data-camera-target`
     // on the canvas (a plain string, written by the HUD loop; nothing can be set through it).
     const tstate = () => tp.evaluate(() => {
-      const c = document.getElementById('sceneCanvas'), n = (id) => +document.getElementById(id).textContent;
+      const c = document.getElementById('sceneCanvas');
       const t = c.dataset.cameraTarget.split(',').map(Number);
-      return { p: [n('coordX'), n('coordY'), n('coordZ')], t };
+      return { p: c.dataset.cameraPosition.split(',').map(Number), t };
     });
     const vsub = (a, b) => a.map((v, i) => v - b[i]), vlen = (a) => Math.hypot(...a);
     // Classify what a gesture did, using the REAL orbit target: orbit = direction from the target changed while the distance and the
@@ -458,10 +458,11 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
   ok('empty battery + power ON: status battery-empty (never running), outputs zero, message explains', emp.status === 'battery-empty' && emp.output.voltage === 0 && emp.output.currentA === 0 && emp.battery.currentA === 0 && /empty/i.test(emp.protection.message));
 
   // ---- camera, responsive, console
-  const cam0 = await text('coordZ');
+  const camPos = () => page.evaluate(() => document.getElementById('sceneCanvas').dataset.cameraPosition);
+  const cam0 = await camPos();
   await page.mouse.move(500, 300); await page.mouse.down(); await page.mouse.move(600, 340, { steps: 8 }); await page.mouse.up();
   await page.mouse.wheel(0, 300); await page.waitForTimeout(500);
-  ok('camera orbit/zoom changes the camera coordinates', (await text('coordZ')) !== cam0 || (await text('coordX')) !== '0.20');
+  ok('camera orbit/zoom changes the camera coordinates', (await camPos()) !== cam0);
   await page.screenshot({ path: `${SHOT}/browser-check-desktop.png` });
   for (const [w, h] of [[390, 844], [820, 1180]]) {
     await page.setViewportSize({ width: w, height: h }); await page.waitForTimeout(400);
@@ -483,7 +484,7 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
     // AC / DC radio group is synchronised with the 3D lever state, the M key and aria
     const modeState = () => pg.evaluate(() => ({ canvas: document.getElementById('sceneCanvas').dataset.sourceMode, ac: document.getElementById('modeAcBtn').getAttribute('aria-checked'), dc: document.getElementById('modeDcBtn').getAttribute('aria-checked'), unit: document.getElementById('voltageUnit').textContent, desc: document.getElementById('modeDesc').textContent }));
     await pg.click('#panelToggle'); await pg.waitForTimeout(400);
-    ok('opening the panel moves focus into it', (await pg.evaluate(() => document.activeElement && document.activeElement.id)) === 'controlPanel');
+    ok('opening the panel moves focus to the active tab inside it', (await pg.evaluate(() => document.activeElement && document.activeElement.id)) === 'tab-controls');
     await pg.click('#modeDcBtn');
     let m1 = await modeState();
     ok('AC/DC buttons: DC click switches mode (scene, aria-checked, unit text, description)', m1.canvas === 'DC' && m1.dc === 'true' && m1.ac === 'false' && /DC/.test(m1.unit) && /DC/.test(m1.desc), JSON.stringify(m1));
@@ -506,14 +507,13 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
     // closed panel is not reachable by keyboard
     const hiddenReachable = await pg.evaluate(() => { const panel = document.getElementById('controlPanel'); return getComputedStyle(panel).visibility !== 'hidden'; });
     ok('closed panel is visibility:hidden (not tabbable)', !hiddenReachable);
-    // Help dialog: ? opens, focus moves inside, shortcuts are suspended, Escape closes and focus returns
-    await pg.keyboard.press('?'); await pg.waitForTimeout(300);
-    const dlg = await pg.evaluate(() => ({ open: document.getElementById('helpDialog').open, inside: document.getElementById('helpDialog').contains(document.activeElement) }));
-    ok('Help dialog opens with ? and focus moves inside it', dlg.open && dlg.inside, JSON.stringify(dlg));
-    await pg.keyboard.press('m'); ok('keyboard shortcuts are suspended while the Help dialog is open', (await pg.evaluate(() => document.getElementById('sceneCanvas').dataset.sourceMode)) === 'AC');
-    ok('Help dialog lists the shortcuts in a real table with header cells', (await pg.locator('#helpDialog table th[scope="col"]').count()) === 2 && (await pg.locator('#helpDialog kbd').count()) >= 10);
+    // Help lives inside the Controls panel: ? opens the panel on the Help tab, focus lands on that tab
+    await pg.keyboard.press('?'); await pg.waitForTimeout(400);
+    const hp = await pg.evaluate(() => ({ open: document.querySelector('.stage').classList.contains('panel-open'), tab: document.querySelector('[role=tab][aria-selected=true]')?.id, focus: document.activeElement.id, pane: !document.getElementById('pane-help').hidden }));
+    ok('? opens the Controls panel on the Help tab and moves focus to that tab', hp.open && hp.tab === 'tab-help' && hp.focus === 'tab-help' && hp.pane, JSON.stringify(hp));
+    ok('Help tab lists the shortcuts in a real table with header cells', (await pg.locator('#pane-help table th[scope="col"]').count()) === 2 && (await pg.locator('#pane-help kbd').count()) >= 10);
     await pg.keyboard.press('Escape'); await pg.waitForTimeout(300);
-    ok('Escape closes Help and returns focus to the Help button', !(await pg.evaluate(() => document.getElementById('helpDialog').open)) && (await pg.evaluate(() => document.activeElement.id)) === 'helpBtn');
+    ok('Escape closes the panel and returns focus to the Controls button', !(await pg.evaluate(() => document.querySelector('.stage').classList.contains('panel-open'))) && (await pg.evaluate(() => document.activeElement.id)) === 'panelToggle');
     // heading structure and accessible names
     const struct = await pg.evaluate(() => {
       const hs = [...document.querySelectorAll('h1,h2,h3')].map((h) => Number(h.tagName[1]));
@@ -526,14 +526,12 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
     ok('rendered DOM: lang, title, canonical and structured data present', struct.lang === 'en' && struct.title === 'Volta Lab | Interactive 3D Power Electronics Simulator' && /\/$/.test(struct.canonical) && struct.ld);
     await ctx.close();
   }
-  // First visit: a small dismissible suggestion (not a modal), shown once
+  // First visit: nothing pops up, the simulator screen stays clean
   {
     const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-    const pg = await ctx.newPage(); await gotoReady(pg);
-    ok('first visit: Quick Start suggestion shown, not a modal', (await pg.locator('#introToast').isVisible()) && !(await pg.evaluate(() => document.getElementById('helpDialog').open)));
-    await pg.click('#toastDismiss'); ok('first visit: suggestion can be dismissed', !(await pg.locator('#introToast').isVisible()));
-    await pg.reload(); await pg.waitForFunction(() => !!window.voltaLab); await pg.waitForTimeout(600);
-    ok('second visit: suggestion is not shown again', !(await pg.locator('#introToast').isVisible()));
+    const pg = await ctx.newPage(); await gotoReady(pg); await pg.waitForTimeout(800);
+    const stray = await pg.evaluate(() => ({ dialogs: document.querySelectorAll('dialog[open]').length, toast: !!document.getElementById('introToast'), panelOpen: document.querySelector('.stage').classList.contains('panel-open') }));
+    ok('first visit: no popup, toast or open panel; the scene is clean', stray.dialogs === 0 && !stray.toast && !stray.panelOpen, JSON.stringify(stray));
     await ctx.close();
   }
   // Reduced motion: honoured by the 3D scene, not only by CSS
@@ -541,7 +539,7 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
     const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' }); await ctx.addInitScript(SEEN_INIT);
     const pg = await ctx.newPage(); await gotoReady(pg);
     ok('prefers-reduced-motion: scene reports reduced motion', (await attr(pg, '#sceneCanvas', 'data-reduced-motion')) === 'true');
-    const pos = () => pg.evaluate(() => [...['coordX', 'coordY', 'coordZ']].map((i) => Number(document.getElementById(i).textContent)));
+    const pos = () => pg.evaluate(() => document.getElementById('sceneCanvas').dataset.cameraPosition.split(',').map(Number));
     await pg.mouse.move(700, 300); await pg.mouse.down(); await pg.mouse.move(820, 330, { steps: 6 }); await pg.mouse.up();
     await pg.waitForTimeout(1500); const a = await pos(); await pg.waitForTimeout(2500); const b = await pos();
     ok('prefers-reduced-motion: no camera inertia after releasing a drag', Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < 0.005, `drift ${Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]).toFixed(4)}`);
@@ -551,6 +549,95 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
     ok('default motion setting: scene reports reduced motion = false', (await attr(pg2, '#sceneCanvas', 'data-reduced-motion')) === 'false');
     await ctx2.close();
   }
+  // ---- Minimal header and clean scene (redesign): only Controls, Wide View and View Free, right-aligned; clutter removed
+  for (const [w, h, name] of [[1440, 900, 'desktop'], [390, 844, 'phone']]) {
+    const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: w < 900 }); await ctx.addInitScript(SEEN_INIT);
+    const pg = await ctx.newPage(); await gotoReady(pg);
+    const hd = await pg.evaluate(() => {
+      const bar = document.querySelector('.topbar');
+      const btns = [...bar.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); return { t: b.textContent.trim().replace(/\s+/g, ' ').toUpperCase(), l: r.left, r: r.right, w: r.width, h: r.height }; });
+      const extras = [...bar.querySelectorAll('a, h1, h2, h3, img, nav, [class*=badge], [class*=brand]')].map((e) => e.tagName + '.' + e.className);
+      const group = { l: Math.min(...btns.map((b) => b.l)), r: Math.max(...btns.map((b) => b.r)) };
+      return { btns, extras, group, vw: innerWidth };
+    });
+    ok(`header ${name}: exactly three buttons, in order Controls, Wide View, View Free`, hd.btns.length === 3 && hd.btns.map((b) => b.t).join('|') === 'CONTROLS|WIDE VIEW|VIEW FREE', JSON.stringify(hd.btns.map((b) => b.t)));
+    ok(`header ${name}: no title, links, badge or other navigation`, hd.extras.length === 0, hd.extras.join(','));
+    ok(`header ${name}: group is right-aligned and compact`, hd.group.r >= hd.vw - 24 && (hd.group.r - hd.group.l) <= hd.vw * (w < 900 ? 0.8 : 0.35) && hd.btns.every((b) => b.h <= 48 && b.h >= (w < 700 ? 44 : 40)), JSON.stringify({ group: hd.group, vw: hd.vw, h: hd.btns.map((b) => b.h) }));
+    const gone = await pg.evaluate(() => {
+      const ids = ['coordX', 'coordY', 'coordZ', 'floatingVoltage', 'sceneStatusText', 'flowText', 'powerFlow', 'helpBtn', 'helpDialog', 'introToast'].filter((i) => document.getElementById(i));
+      const txt = document.querySelector('.stage').innerText;
+      const found = ['LIVE LEAD', 'RETURN LEAD', 'OUTPUT STATUS', 'MACHINE STANDBY', '60 FPS', 'DRAG CABLE', 'DRAG FRONT', 'ORBIT VIEW', 'OUTPUT VOLTAGE', 'SIMULATION ONLY', 'LEARNING HUB'].filter((t) => txt.toUpperCase().includes(t));
+      return { ids, found, coord: /\bX:\s*-?\d/.test(txt) };
+    });
+    ok(`scene ${name}: coordinates, lead labels, status badge, footer text, instructions and floating voltage card are removed`, gone.ids.length === 0 && gone.found.length === 0 && !gone.coord, JSON.stringify(gone));
+    await pg.screenshot({ path: `${SHOT}/redesign-${name}.png` });
+    await ctx.close();
+  }
+
+  // ---- Controls panel: five tabs, all content reachable inside it
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } }); await ctx.addInitScript(SEEN_INIT);
+    const pg = await ctx.newPage(); await gotoReady(pg);
+    await pg.click('#panelToggle'); await pg.waitForTimeout(500);
+    const names = await pg.evaluate(() => [...document.querySelectorAll('[role=tab]')].map((t) => t.getAttribute('aria-label') || t.textContent.trim()));
+    ok('Controls panel has the five sections as tabs', names.join('|') === 'Controls|Settings|Help|Learning Hub|Limitations & Safety', names.join('|'));
+    ok('Controls tab holds Main Power, AC/DC, voltage, wire and camera controls', (await pg.evaluate(() => ['powerBtn', 'modeAcBtn', 'modeDcBtn', 'voltageSlider', 'touchWiresBtn', 'separateWiresBtn', 'resetCameraBtn'].every((i) => document.getElementById('pane-controls').contains(document.getElementById(i))))));
+    await pg.focus('#tab-controls'); await pg.keyboard.press('ArrowRight'); await pg.waitForTimeout(150);
+    ok('ArrowRight on the tab list selects and focuses the next tab', (await pg.evaluate(() => document.activeElement.id)) === 'tab-settings' && (await attr(pg, '#tab-settings', 'aria-selected')) === 'true' && !(await pg.locator('#pane-settings').isHidden()));
+    ok('Settings tab: camera radio group with four options and a motion note', (await pg.locator('#cameraModeRadios [role=radio]').count()) === 4 && /reduce/i.test(await pg.locator('#motionSetting').textContent()));
+    await pg.click('#cameraModeRadios [data-camera-mode="zoom-only"]'); await pg.waitForTimeout(200);
+    ok('Settings camera mode changes the scene and the header button', (await attr(pg, '#sceneCanvas', 'data-camera-mode')) === 'zoom-only' && /ZOOM/i.test(await pg.locator('#cameraModeLabel').textContent()));
+    await pg.click('#cameraModeRadios [data-camera-mode="free"]');
+    await pg.click('#tab-help'); await pg.waitForTimeout(150);
+    ok('Help tab: operating instructions, wire instructions and a shortcut table', (await pg.locator('#pane-help h3').count()) >= 3 && (await pg.locator('#pane-help table').count()) === 1);
+    await pg.click('#tab-learn'); await pg.waitForTimeout(150);
+    const links = await pg.evaluate(() => [...document.querySelectorAll('#pane-learn a[href]')].map((a) => a.getAttribute('href')));
+    const want = ['/learn/', '/learn/dc-dc-converter-fundamentals/', '/learn/single-phase-h-bridge-inverter/', '/learn/battery-equivalent-circuit-model/', '/learn/ac-vs-dc-output/', '/learn/model-limitations-and-safety/'];
+    ok('Learning Hub tab: overview and the five lessons are real links', want.every((l) => links.includes(l)), links.join(','));
+    await pg.click('#tab-safety'); await pg.waitForTimeout(150);
+    ok('Limitations & Safety tab: assumptions, limitations and the full-lesson link', (await pg.locator('#pane-safety h3').count()) >= 2 && (await pg.locator('#pane-safety a[href="/learn/model-limitations-and-safety/"]').count()) === 1);
+    await pg.click('#panelClose'); await pg.waitForTimeout(300);
+    ok('closing the panel returns to the clean scene and focus to the Controls button', !(await pg.evaluate(() => document.querySelector('.stage').classList.contains('panel-open'))) && (await pg.evaluate(() => document.activeElement.id)) === 'panelToggle');
+    await ctx.close();
+  }
+
+  // ---- Electrical state: AC/DC switching with Main Power ON must never blank the LCD or reset anything
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } }); await ctx.addInitScript(SEEN_INIT);
+    const pg = await ctx.newPage(); await gotoReady(pg);
+    await pg.click('#panelToggle'); await pg.waitForTimeout(500);
+    const st = () => pg.evaluate(() => { const s = window.voltaLab.snapshot(), c = document.getElementById('sceneCanvas').dataset; return { on: s.inputs.powerOn, mode: s.inputs.mode, status: s.status, soc: s.battery.socFrac, cur: s.output.currentA, lit: c.displayLit, dstate: c.displayState, sw: document.getElementById('powerBtn').getAttribute('aria-checked'), conn: s.inputs.connection }; });
+    await pg.click('#powerBtn'); await pg.waitForTimeout(600);
+    let s0 = await st();
+    ok('Main Power ON: engine on, LCD lit, switch reads ON', s0.on && s0.lit === 'true' && s0.sw === 'true', JSON.stringify(s0));
+    let bad = [], prevSoc = s0.soc;
+    for (let i = 0; i < 10; i++) {
+      const target = i % 2 === 0 ? '#modeDcBtn' : '#modeAcBtn'; await pg.click(target); await pg.waitForTimeout(250);
+      const s = await st();
+      if (!(s.on && s.sw === 'true' && s.lit === 'true' && s.mode === (i % 2 === 0 ? 'dc' : 'ac') && s.dstate !== 'off' && s.soc <= prevSoc + 1e-9 && prevSoc - s.soc < 0.01)) bad.push({ i, s });
+      prevSoc = s.soc;
+    }
+    ok('10 AC/DC switches with power ON (open circuit): power stays ON, LCD stays lit, mode follows, SOC never resets', bad.length === 0, JSON.stringify(bad.slice(0, 2)));
+    await pg.click('#touchWiresBtn'); await pg.waitForTimeout(500);
+    await pg.click('#modeDcBtn'); await pg.waitForTimeout(300);
+    const sShort = await st();
+    ok('wires touched in DC with power ON: short is detected, LCD lit', sShort.conn === 'short' && sShort.lit === 'true' && sShort.on, JSON.stringify(sShort));
+    await pg.click('#modeAcBtn'); await pg.waitForTimeout(300);
+    await pg.waitForFunction(() => window.voltaLab.snapshot().status === 'tripped', null, { timeout: 150000 }).catch(() => {});
+    const tr = await st();
+    ok('protective trip with power ON: LCD stays lit showing a fault, switch still ON, no current invented', tr.status === 'tripped' && tr.lit === 'true' && tr.dstate === 'protected' && tr.on && tr.sw === 'true' && tr.cur === 0, JSON.stringify(tr));
+    let bad2 = [];
+    for (const t of ['#modeDcBtn', '#modeAcBtn', '#modeDcBtn', '#modeAcBtn']) { await pg.click(t); await pg.waitForTimeout(250); const s = await st(); if (!(s.status === 'tripped' && s.lit === 'true' && s.on && s.sw === 'true' && s.mode === (t === '#modeDcBtn' ? 'dc' : 'ac'))) bad2.push({ t, s }); }
+    ok('mode switches while tripped keep the LCD lit, keep the latch, and update the mode label', bad2.length === 0, JSON.stringify(bad2.slice(0, 2)));
+    await pg.click('#powerBtn'); await pg.waitForTimeout(500);
+    const off = await st();
+    ok('Main Power OFF is the only state with the LCD unlit', !off.on && off.lit === 'false' && off.dstate === 'off' && off.sw === 'false', JSON.stringify(off));
+    await pg.click('#separateWiresBtn'); await pg.click('#powerBtn'); await pg.waitForTimeout(800);
+    const back = await st();
+    ok('after a power cycle with the wires apart the machine runs normally again', back.on && back.status === 'running' && back.lit === 'true' && back.conn === 'open', JSON.stringify(back));
+    await ctx.close();
+  }
+
   // Layout at the four target viewports: no overflow, no overlapping controls, readable targets
   for (const [w, h, name] of [[1440, 900, 'desktop'], [820, 1180, 'tablet'], [390, 844, 'phone'], [320, 640, 'narrow']]) {
     const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: w < 900 }); await ctx.addInitScript(SEEN_INIT);
@@ -559,7 +646,7 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
       if (open) { await pg.click('#panelToggle'); await pg.waitForTimeout(700); }
       const lay = await pg.evaluate(() => {
         const vis = (s) => { const e = document.querySelector(s); if (!e) return null; const r = e.getBoundingClientRect(); return r.width && r.height ? { s, l: r.left, t: r.top, r: r.right, b: r.bottom } : null; };
-        const ids = ['.brand', '.topnav', '.sim-badge', '#cameraModeBtn', '#explodeBtn', '#helpBtn', '#panelToggle'].map(vis).filter(Boolean);
+        const ids = ['#cameraModeBtn', '#explodeBtn', '#panelToggle'].map(vis).filter(Boolean);
         const overlaps = [];
         for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) { const a = ids[i], b = ids[j]; if (a.l < b.r - 0.5 && b.l < a.r - 0.5 && a.t < b.b - 0.5 && b.t < a.b - 0.5) overlaps.push(a.s + '×' + b.s); }
         const bar = document.querySelector('.topbar').getBoundingClientRect(), panel = document.getElementById('controlPanel').getBoundingClientRect();
@@ -570,8 +657,9 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
       ok(`layout ${name} ${w}×${h} panel ${open ? 'open' : 'closed'}: no horizontal overflow, no off-screen or overlapping top-bar controls, panel clear of the top bar`, !lay.overflow && !lay.overlaps.length && !lay.offscreen.length && lay.panelBelowBar, JSON.stringify(lay));
     }
     // touch-target sizes of primary controls (WCAG 2.2 AA minimum is 24 CSS px; this project aims for 44)
-    const small = await pg.evaluate(() => ['#powerBtn', '#modeAcBtn', '#modeDcBtn', '#touchWiresBtn', '#separateWiresBtn', '#panelToggle', '#helpBtn', '#cameraModeBtn', '#explodeBtn', '[data-voltage]'].flatMap((s) => [...document.querySelectorAll(s)].map((e) => { const r = e.getBoundingClientRect(); return { s, id: e.id, w: Math.round(r.width), h: Math.round(r.height) }; })).filter((r) => r.w < 44 || r.h < 44));
-    ok(`touch targets ${name} ${w}×${h}: primary controls are at least 44 × 44 CSS px`, small.length === 0, JSON.stringify(small));
+    const hdrMin = w < 700 ? 44 : 40; // header buttons on a wide mouse-first screen are 40 px tall (WCAG 2.2 AA minimum is 24 px)
+    const small = await pg.evaluate((hdrMin2) => ['#powerBtn', '#modeAcBtn', '#modeDcBtn', '#touchWiresBtn', '#separateWiresBtn', '#panelToggle', '#cameraModeBtn', '#explodeBtn', '[data-voltage]'].flatMap((s) => [...document.querySelectorAll(s)].map((e) => { const r = e.getBoundingClientRect(); return { s, id: e.id, w: Math.round(r.width), h: Math.round(r.height) }; })).filter((r) => r.w < 44 || r.h < (['#panelToggle', '#cameraModeBtn', '#explodeBtn'].includes(r.s) ? hdrMin2 : 44)), hdrMin);
+    ok(`touch targets ${name} ${w}×${h}: primary controls are at least 44 × 44 CSS px (header buttons 40 px tall on wide screens)`, small.length === 0, JSON.stringify(small));
     await pg.screenshot({ path: `${SHOT}/ux-${name}-${w}.png` });
     await ctx.close();
   }

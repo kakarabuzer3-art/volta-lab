@@ -22,7 +22,7 @@ Node 22.12 or newer is required (the tests run TypeScript directly).
 
 | Path | Purpose |
 |---|---|
-| `index.html` | Page shell: header, accessible HTML controls, Help dialog, SEO metadata and structured data |
+| `index.html` | Page shell: three-button header, the tabbed Controls panel (Controls, Settings, Help, Learning Hub, Limitations & Safety), SEO metadata and structured data |
 | `src/entry.ts` | Entry point. Loads the stylesheet, then loads the 3D code as a separate chunk so the page shell paints first |
 | `src/main.ts` | Three.js scene, input handling, camera modes, HUD (reads the engine's snapshot; computes no electrical values) |
 | `src/sim/` | Deterministic electrical engine (battery, DC-DC, inverter, loads, protection, energy ledger). See `ELECTRICAL_MODEL.md` |
@@ -41,7 +41,7 @@ Colour meaning: cyan = information and interaction, mint = active or healthy, am
 ## Accessibility notes
 
 * Every important action has an HTML control that stays synchronised with the 3D one: Main Power (switch), AC/DC (radio group), voltage (slider and presets), camera mode, detail view, touch/separate wire ends.
-* Keyboard shortcuts are listed in the Help dialog (`?`). The dialog is a native `<dialog>`: focus is trapped, Escape closes it and focus returns to the Help button.
+* The header holds only Controls, Wide View and View Free. Everything else (settings, Help with the keyboard-shortcut table, the Learning Hub links, Limitations & Safety) is a tab inside the Controls panel (`P` opens or closes it, `?` opens it on Help, `Escape` closes it). Focus moves to the active tab on open and back to the Controls button on close.
 * `prefers-reduced-motion` is honoured in the 3D scene as well as in CSS: no camera inertia, no pulsing lights or rings, instant switch movement, steady (non-flickering) fault flash.
 * This is a developer-run set of automated checks, not a complete WCAG audit or a screen-reader test.
 

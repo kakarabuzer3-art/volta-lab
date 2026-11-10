@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 import {
-  Engine, MAX_SETPOINT_V, deepFreeze, outputStageDescription, validateLoad, acInputSupplyLoad, capacitiveLoad, dcModuleLoad, dcMotorLoad, inductiveLoad, resistiveLoad, rlcLoad,
+  Engine, MAX_SETPOINT_V, deepFreeze, outputStageDescription, displayPresentation, displayState, validateLoad, acInputSupplyLoad, capacitiveLoad, dcModuleLoad, dcMotorLoad, inductiveLoad, resistiveLoad, rlcLoad,
 } from './sim/index.ts';
 import type { Connection, Load, Snapshot } from './sim/index.ts';
 
@@ -333,33 +333,29 @@ machine.add(displaySheen);
 let lastDisplayKey = '';
 // Fonts load asynchronously: repaint once they are ready so the screen never keeps fallback glyphs.
 document.fonts?.ready.then(() => { lastDisplayKey = ''; });
-type DisplayState = 'off' | 'open' | 'short' | 'load' | 'protected' | 'empty';
-function displayState(s: Snapshot): DisplayState {
-  if (s.status === 'tripped') return 'protected';
-  if (s.status === 'battery-empty') return 'empty';
-  if (s.status === 'off') return 'off';
-  return s.inputs.connection === 'short' ? 'short' : s.inputs.connection === 'load' ? 'load' : 'open';
-}
 function paintMachineDisplay(snap: Snapshot) {
   const o = snap.output;
-  const mode = o.kind === 'ac' ? 'AC' : 'DC';
-  const state = displayState(snap);
+  const pres = displayPresentation(snap); // single source of truth for lit / tone / chip (see ./sim/status.ts)
+  const mode = pres.mode;
+  const state = pres.state;
   const ac = o.kind === 'ac';
-  const live = state === 'open' || state === 'short' || state === 'load';
-  const status = state === 'protected' ? 'TRIP' : state === 'empty' ? 'EMPTY' : state === 'short' ? 'SHORT' : state === 'load' ? 'LOAD' : state === 'open' ? 'RUN' : 'OFF';
+  const lit = pres.lit;
+  const status = pres.chip;
+  canvas.dataset.displayLit = String(lit); canvas.dataset.displayState = state; // diagnostic attributes for the browser check (the LCD is a canvas texture)
   const freqText = ac ? o.freqHz.toFixed(1) : 'DC';
   const peakText = o.vPeakV === null ? 'n/a' : o.vPeakV.toFixed(1);
   const socText = `${(snap.battery.socFrac * 100).toFixed(0)}%`;
   // Only re-upload the texture when something visible actually changed.
-  const key = [mode, state, o.voltage.toFixed(1), o.currentA.toFixed(2), Math.round(o.pRealW), o.targetV.toFixed(0), peakText, freqText, o.currentLimited, socText].join('|');
+  const key = [mode, state, lit, status, pres.faultLines?.join('/') ?? '', o.voltage.toFixed(1), o.currentA.toFixed(2), Math.round(o.pRealW), o.targetV.toFixed(0), peakText, freqText, o.currentLimited, socText].join('|');
   if (key === lastDisplayKey) return;
   lastDisplayKey = key;
 
   const ctx = displayContext;
   const W = DISPLAY_W, H = DISPLAY_H;
-  const accent = state === 'protected' ? '#ff7a7a' : state === 'empty' ? '#ffb347' : state === 'short' ? '#ffa56b' : live ? '#4be1ac' : '#5b7068';
-  const bright = live ? '#c4ffec' : '#4d6a5f';
-  const soft = live ? '#8fe6c6' : '#4d6a5f';
+  // Lit whenever Main Power is ON (including every fault); only Main Power OFF gives the dim, unlit palette.
+  const accent = state === 'protected' ? '#ff7a7a' : state === 'empty' ? '#ffb347' : state === 'short' ? '#ffa56b' : lit ? '#4be1ac' : '#5b7068';
+  const bright = lit ? '#c4ffec' : '#4d6a5f';
+  const soft = lit ? '#8fe6c6' : '#4d6a5f';
   const label = '#68a592';
 
   ctx.setTransform(DISPLAY_SCALE, 0, 0, DISPLAY_SCALE, 0, 0);
@@ -391,6 +387,14 @@ function paintMachineDisplay(snap: Snapshot) {
 
   // Set-point bar (open-circuit voltage) with ticks, plus peak value (AC) or polarity (DC).
   const bx = 430, bw = 266;
+  if (pres.faultLines) {
+    // Fault: the screen stays lit and says what happened (never a blank screen while Main Power is ON).
+    ctx.fillStyle = `${accent}22`; ctx.beginPath(); ctx.roundRect(bx - 8, 54, bw + 16, 70, 8); ctx.fill();
+    ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.fillStyle = accent; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    ctx.font = `600 20px ${MONO}`; ctx.fillText('! ' + pres.faultLines[0], bx + 6, 86);
+    ctx.fillStyle = bright; ctx.font = `500 15px ${MONO}`; ctx.fillText(pres.faultLines[1], bx + 6, 110);
+  } else {
   ctx.fillStyle = label; ctx.font = `500 14px ${MONO}`; ctx.fillText('SET', bx, 72);
   ctx.textAlign = 'right'; ctx.fillText(ac ? `PEAK ${peakText} V` : 'A: +   B: −', bx + bw, 72); ctx.textAlign = 'left';
   ctx.fillStyle = 'rgba(255,255,255,0.09)'; ctx.beginPath(); ctx.roundRect(bx, 84, bw, 10, 5); ctx.fill();
@@ -406,6 +410,7 @@ function paintMachineDisplay(snap: Snapshot) {
   ctx.textAlign = 'left'; ctx.fillText('0', bx, 122);
   ctx.textAlign = 'center'; ctx.fillText(String(Math.round(MAX_VOLTAGE / 2)), bx + bw / 2, 122);
   ctx.textAlign = 'right'; ctx.fillText(String(MAX_VOLTAGE), bx + bw, 122); ctx.textAlign = 'left';
+  }
 
   // Secondary read-outs. DC has no frequency, so it shows "DC" instead of a number.
   ctx.fillStyle = 'rgba(120,200,170,0.16)'; ctx.fillRect(24, 130, W - 48, 1);
@@ -766,7 +771,6 @@ function hasContact() { return exposedTipPosition(0).distanceTo(exposedTipPositi
 const powerBtn = $('powerBtn') as HTMLButtonElement;
 const voltageSlider = $('voltageSlider') as HTMLInputElement;
 const voltageValue = $('voltageValue');
-const floatingVoltage = $('floatingVoltage');
 const metricVoltage = $('metricVoltage');
 const metricCurrent = $('metricCurrent');
 const metricPower = $('metricPower');
@@ -774,9 +778,6 @@ const metricFrequency = $('metricFrequency');
 const arcStatus = $('arcStatus');
 const arcState = $('arcState');
 const connectionPill = $('connectionPill');
-const sceneStatusText = $('sceneStatusText');
-const flowText = $('flowText');
-const powerFlow = $('powerFlow');
 const powerDescription = $('powerDescription');
 const leadAState = $('leadAState');
 const leadBState = $('leadBState');
@@ -786,7 +787,6 @@ const powerBar = $('powerBar') as HTMLElement;
 const frequencyBar = $('frequencyBar') as HTMLElement;
 const voltageUnit = $('voltageUnit');
 const metricVoltageUnit = $('metricVoltageUnit');
-const floatingUnit = $('floatingUnit');
 const batteryText = $('batteryState');
 const convInputText = $('convInput');
 const convEffText = $('convEff');
@@ -819,7 +819,6 @@ function setMode(mode: SourceMode) {
   modeDcMat.color.set(mode === 'DC' ? '#5cf2bf' : '#5d6a74');
   voltageUnit.textContent = mode === 'AC' ? 'V AC RMS' : 'V DC';
   metricVoltageUnit.textContent = mode === 'AC' ? 'V RMS' : 'V DC';
-  floatingUnit.textContent = mode === 'AC' ? 'V RMS' : 'V DC';
   canvas.dataset.sourceMode = mode;
   for (const b of [modeAcBtn, modeDcBtn]) { const on = b.dataset.mode === mode; b.setAttribute('aria-checked', String(on)); b.tabIndex = on ? 0 : -1; }
   modeDesc.textContent = mode === 'AC' ? 'AC: single-phase, two-wire, 50 Hz' : 'DC: steady voltage, 0 Hz';
@@ -829,9 +828,6 @@ function setPower(value: boolean) {
   isOn = value;
   powerBtn.setAttribute('aria-checked', String(isOn));
   powerBtn.classList.toggle('is-on', isOn);
-  flowText.textContent = isOn ? 'READY' : 'INACTIVE';
-  powerFlow.classList.toggle('active', isOn);
-  sceneStatusText.textContent = isOn ? 'OUTPUT ENABLED' : 'MACHINE STANDBY';
   physicalPowerLedMat.color.set(isOn ? '#35d89d' : '#762e32');
   physicalPowerLedMat.emissive.set(isOn ? '#20e98a' : '#ff2638');
   physicalPowerLedMat.emissiveIntensity = isOn ? 1.5 : 0.45;
@@ -868,6 +864,14 @@ function separateWires() {
   tipsAtRest = true;
   clearWireSelection();
 }
+const viewPresetLabel = $('viewPresetLabel');
+// The label names the CURRENT view (aria-pressed = close-up detail view); the accessible name says what a click does.
+function paintViewButton() {
+  const btn = $('explodeBtn');
+  viewPresetLabel.textContent = detailView ? 'DETAIL VIEW' : 'WIDE VIEW';
+  const tip = detailView ? 'Detail view. Click to return to the wide view.' : 'Wide view. Click to switch to the close-up detail view.';
+  btn.setAttribute('aria-label', tip); btn.title = tip;
+}
 function resetCamera() {
   camera.position.copy(defaultCamera);
   controls.target.copy(defaultTarget);
@@ -875,7 +879,7 @@ function resetCamera() {
   detailView = false;
   $('explodeBtn').classList.remove('active');
   $('explodeBtn').setAttribute('aria-pressed', 'false');
-  $('explodeBtn').innerHTML = 'DETAIL VIEW <span class="toggle-track"><i></i></span>';
+  paintViewButton();
 }
 
 // ---- Cable tips: hover / selected affordance and two-click connection -------------------------------------
@@ -1023,6 +1027,8 @@ function paintCameraButton() {
   cameraBtn.dataset.mode = cameraMode;
   const tip = `Camera control: ${CAMERA_LABEL[cameraMode]}. Click to switch to ${CAMERA_LABEL[next]}.`;
   cameraBtn.setAttribute('aria-label', tip); cameraBtn.title = tip;
+  // Keep the Settings radio group (same setting) in step with the header button.
+  document.querySelectorAll<HTMLButtonElement>('#cameraModeRadios [role="radio"]').forEach((r) => { const on = r.dataset.cameraMode === cameraMode; r.setAttribute('aria-checked', String(on)); r.tabIndex = on ? 0 : -1; });
 }
 cameraBtn.addEventListener('click', () => {
   setCameraMode(CAMERA_CYCLE[(CAMERA_CYCLE.indexOf(cameraMode) + 1) % CAMERA_CYCLE.length]);
@@ -1050,62 +1056,78 @@ $('explodeBtn').addEventListener('click', () => {
   detailView = !detailView;
   $('explodeBtn').classList.toggle('active', detailView);
   $('explodeBtn').setAttribute('aria-pressed', String(detailView));
-  $('explodeBtn').innerHTML = detailView ? 'WIDE VIEW <span class="toggle-track"><i></i></span>' : 'DETAIL VIEW <span class="toggle-track"><i></i></span>';
+  paintViewButton();
   camera.position.copy(detailView ? detailCamera : defaultCamera);
   controls.target.copy(detailView ? detailTarget : defaultTarget);
   stopCameraMomentum(); // preset moves the camera on purpose; the selected camera mode is left untouched
 });
 
-// Control panel drawer: small corner button opens / closes it (also P / Escape).
+// Controls panel: one drawer holds Controls, Settings, Help, Learning Hub and Limitations & Safety as tabs. The header Controls
+// button, P and Escape open / close it; ? opens it on the Help tab. Focus moves in on open and back to the button on close.
 const stageEl = document.querySelector('.stage') as HTMLElement;
 const panelToggle = $('panelToggle') as HTMLButtonElement;
 const controlPanel = $('controlPanel');
-controlPanel.tabIndex = -1; // focusable by script only: lets focus move into the drawer without landing on a button
-function setPanel(open: boolean) {
-  const was = stageEl.classList.contains('panel-open');
+controlPanel.tabIndex = -1; // focusable by script only
+const TAB_IDS = ['controls', 'settings', 'help', 'learn', 'safety'] as const;
+type TabId = (typeof TAB_IDS)[number];
+const tabButtons = TAB_IDS.map((id) => $(`tab-${id}`) as HTMLButtonElement);
+const tabPanes = TAB_IDS.map((id) => $(`pane-${id}`));
+let activeTab: TabId = 'controls';
+function selectTab(id: TabId, focusTab = false) {
+  activeTab = id;
+  TAB_IDS.forEach((t, i) => {
+    const on = t === id;
+    tabButtons[i].setAttribute('aria-selected', String(on));
+    tabButtons[i].tabIndex = on ? 0 : -1;
+    tabPanes[i].hidden = !on;
+  });
+  if (focusTab) tabButtons[TAB_IDS.indexOf(id)].focus();
+  ($('panelBody') as HTMLElement).scrollTop = 0;
+}
+tabButtons.forEach((btn, i) => {
+  btn.addEventListener('click', () => selectTab(TAB_IDS[i]));
+  btn.addEventListener('keydown', (event) => {
+    const n = TAB_IDS.length;
+    const k = event.key;
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(k)) return;
+    event.preventDefault(); event.stopPropagation();
+    const next = k === 'Home' ? 0 : k === 'End' ? n - 1 : (i + (k === 'ArrowRight' ? 1 : n - 1)) % n;
+    selectTab(TAB_IDS[next], true);
+  });
+});
+function isPanelOpen() { return stageEl.classList.contains('panel-open'); }
+function setPanel(open: boolean, tab?: TabId) {
+  const was = isPanelOpen();
   const focusWasInside = controlPanel.contains(document.activeElement);
+  if (tab) selectTab(tab);
   stageEl.classList.toggle('panel-open', open);
   panelToggle.setAttribute('aria-expanded', String(open));
-  panelToggle.setAttribute('aria-label', open ? 'Close control panel' : 'Open control panel');
-  if (open && !was) controlPanel.focus({ preventScroll: true });             // opening: move focus into the panel (its first Tab stop is the Main Power switch)
-  else if (!open && was && focusWasInside) panelToggle.focus({ preventScroll: true }); // closing: never leave focus in a hidden panel
+  panelToggle.setAttribute('aria-label', open ? 'Close controls panel' : 'Controls');
+  if (open && (!was || tab)) tabButtons[TAB_IDS.indexOf(activeTab)].focus({ preventScroll: true }); // opening: focus lands on the active tab
+  else if (!open && was && focusWasInside) panelToggle.focus({ preventScroll: true });              // closing: never leave focus in a hidden panel
 }
-panelToggle.addEventListener('click', () => setPanel(!stageEl.classList.contains('panel-open')));
-
-// ---- Help / Quick Start --------------------------------------------------------------------------------------
-// A native <dialog> (focus trap, Escape and focus restore come from the platform). The first-visit suggestion is a small
-// dismissible toast, never a forced modal; it is shown once per browser (localStorage is optional and may throw).
-const helpDialog = $('helpDialog') as HTMLDialogElement;
-const helpBtn = $('helpBtn') as HTMLButtonElement;
-const introToast = $('introToast');
-const INTRO_KEY = 'voltalab.intro.seen';
-function introSeen(): boolean { try { return localStorage.getItem(INTRO_KEY) === '1'; } catch { return false; } }
-function rememberIntro() { try { localStorage.setItem(INTRO_KEY, '1'); } catch { /* storage unavailable: the toast may show again, which is harmless */ } }
-let introTimer = 0;
-function hideIntro() { window.clearTimeout(introTimer); introToast.hidden = true; }
-// The suggestion fades away on its own, but never while someone is pointing at it or has keyboard focus inside it (WCAG 2.2.1 spirit).
-function armIntroTimer() { window.clearTimeout(introTimer); introTimer = window.setTimeout(hideIntro, 20000); }
-introToast.addEventListener('pointerenter', () => window.clearTimeout(introTimer));
-introToast.addEventListener('focusin', () => window.clearTimeout(introTimer));
-introToast.addEventListener('pointerleave', () => { if (!introToast.hidden && !introToast.contains(document.activeElement)) armIntroTimer(); });
-introToast.addEventListener('focusout', () => { if (!introToast.hidden) armIntroTimer(); });
-function openHelp() { hideIntro(); if (!helpDialog.open) helpDialog.showModal(); }
-helpBtn.addEventListener('click', openHelp);
-$('helpClose').addEventListener('click', () => helpDialog.close());
-helpDialog.addEventListener('click', (event) => { if (event.target === helpDialog) helpDialog.close(); }); // click on the backdrop
-helpDialog.addEventListener('close', () => helpBtn.focus());
-$('toastOpen').addEventListener('click', openHelp);
-$('toastDismiss').addEventListener('click', hideIntro);
-if (!introSeen()) {
-  introToast.hidden = false;
-  rememberIntro();
-  armIntroTimer();
-}
+panelToggle.addEventListener('click', () => setPanel(!isPanelOpen()));
+$('panelClose').addEventListener('click', () => setPanel(false));
+function openHelp() { setPanel(true, 'help'); }
+$('resetCameraBtn').addEventListener('click', () => { resetCamera(); announce('Camera view reset.'); });
+// Settings: camera behaviour radio group, the same setting as the header View button.
+const cameraRadios = Array.from(document.querySelectorAll<HTMLButtonElement>('#cameraModeRadios [role="radio"]'));
+cameraRadios.forEach((r, i) => {
+  r.addEventListener('click', () => { setCameraMode(r.dataset.cameraMode as CameraMode); paintCameraButton(); announce(`Camera mode: ${CAMERA_LABEL[cameraMode]}.`); });
+  r.addEventListener('keydown', (event) => {
+    const k = event.key;
+    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(k)) return;
+    event.preventDefault(); event.stopPropagation();
+    const n = cameraRadios.length;
+    const next = k === 'Home' ? 0 : k === 'End' ? n - 1 : (i + (k === 'ArrowDown' || k === 'ArrowRight' ? 1 : n - 1)) % n;
+    cameraRadios[next].focus(); cameraRadios[next].click();
+  });
+});
+$('motionSetting').textContent = `Follows your system “reduce motion” setting. Currently: ${reduceMotion ? 'reduced motion is ON (no camera inertia or pulsing effects).' : 'normal motion.'}`;
 
 // Keyboard shortcuts: Space power, arrows voltage, T connect tips, S separate,
 // X emergency power-off, M switch AC/DC, R reset camera, P panel, ? help.
 window.addEventListener('keydown', (event) => {
-  if (helpDialog.open) return; // the dialog owns the keyboard while it is open (Escape closes it natively)
   const target = event.target as HTMLElement;
   if (target.matches('input,textarea,button,select') && (event.key === ' ' || event.key.startsWith('Arrow'))) return;
   if (event.code === 'Space') { event.preventDefault(); setPower(!isOn); }
@@ -1116,7 +1138,7 @@ window.addEventListener('keydown', (event) => {
   else if (event.key.toLowerCase() === 'x') setPower(false);
   else if (event.key.toLowerCase() === 'm') setMode(sourceMode === 'AC' ? 'DC' : 'AC');
   else if (event.key.toLowerCase() === 'r') resetCamera();
-  else if (event.key.toLowerCase() === 'p') setPanel(!stageEl.classList.contains('panel-open'));
+  else if (event.key.toLowerCase() === 'p') setPanel(!isPanelOpen());
   else if (event.key === 'Escape') setPanel(false);
   else if (event.key === '?') openHelp();
 });
@@ -1226,7 +1248,6 @@ function animate() {
     metricCurrent.textContent = o.currentA.toFixed(2);
     metricPower.textContent = Math.round(o.pRealW).toLocaleString('en-US');
     metricFrequency.textContent = o.freqHz.toFixed(1);
-    floatingVoltage.textContent = String(Math.round(voltage)).padStart(3, '0');
     batteryText.textContent = `${(snap.battery.socFrac * 100).toFixed(1)} % · ${snap.battery.remainingWh.toFixed(0)} Wh`;
     const cv = snap.converter;
     convInputText.textContent = cv.vInV > 0 ? `${cv.iInA.toFixed(2)} A @ ${cv.vInV.toFixed(0)} V` : 'n/a';
@@ -1248,35 +1269,21 @@ function animate() {
     const arcNote = $('arcStatus').querySelector('small')!;
     if (protectedOff) {
       arcNote.textContent = `${snap.protection.message ?? 'Protective shutdown latched.'} Turn MAIN POWER off, then on, to reset.`;
-      sceneStatusText.textContent = 'PROTECTED SHUTDOWN';
-      flowText.textContent = 'TRIPPED';
-      powerFlow.classList.remove('active');
     } else if (batteryEmpty) {
       arcNote.textContent = snap.protection.message ?? 'Battery is empty.';
-      sceneStatusText.textContent = 'BATTERY EMPTY';
-      flowText.textContent = 'EMPTY';
-      powerFlow.classList.remove('active');
     } else if (poweredContact) {
       arcNote.textContent = `Short circuit · ${o.currentA.toFixed(1)} A ${o.kind === 'ac' ? 'RMS' : 'DC'}${o.currentLimited ? ` (current limit ${CURRENT_LIMIT_A} A; trips in ${TRIP_DELAY_S} s)` : ''} · spark is visual only`;
-      sceneStatusText.textContent = 'SHORT CIRCUIT / SPARK';
-      flowText.textContent = 'SHORT';
-      powerFlow.classList.add('active');
     } else {
       const lh = snap.load?.health;
       // Causal feedback for an attached load (state + which rating was exceeded); otherwise the usual hint.
       arcNote.textContent = lh && lh.state !== 'normal' && lh.reasons.length
         ? `Load ${lh.state.toUpperCase()} (${lh.tempC.toFixed(0)} °C): ${lh.reasons.join(' ')}`
         : contact ? 'Wire ends touch, but output is OFF.' : 'Bring both exposed cable ends together while power is ON.';
-      sceneStatusText.textContent = isOn ? 'OUTPUT ENABLED' : 'MACHINE STANDBY';
-      flowText.textContent = isOn ? 'READY' : 'INACTIVE';
-      powerFlow.classList.toggle('active', isOn);
     }
     paintMachineDisplay(snap);
   }
   const pos = camera.position;
-  $('coordX').textContent = pos.x.toFixed(2);
-  $('coordY').textContent = pos.y.toFixed(2);
-  $('coordZ').textContent = pos.z.toFixed(2);
+  canvas.dataset.cameraPosition = `${pos.x.toFixed(3)},${pos.y.toFixed(3)},${pos.z.toFixed(3)}`; // diagnostic attribute for the browser check (the coordinate overlay was removed)
   canvas.dataset.cameraTarget = `${controls.target.x.toFixed(3)},${controls.target.y.toFixed(3)},${controls.target.z.toFixed(3)}`; // read-only view of the orbit target (used by the browser check)
   renderer.render(scene, camera);
 }
