@@ -3,9 +3,10 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 import {
-  Engine, MAX_SETPOINT_V, deepFreeze, outputStageDescription, displayPresentation, displayState, validateLoad, acInputSupplyLoad, capacitiveLoad, dcModuleLoad, dcMotorLoad, inductiveLoad, resistiveLoad, rlcLoad,
+  ConnectionCoordinator, Engine, MAX_SETPOINT_V, outputStageDescription, displayPresentation, displayState, acInputSupplyLoad, capacitiveLoad, dcModuleLoad, dcMotorLoad, inductiveLoad, resistiveLoad, rlcLoad,
 } from './sim/index.ts';
-import type { Connection, Load, Snapshot } from './sim/index.ts';
+import type { Load, Snapshot } from './sim/index.ts';
+import { initLoadLab } from './loadlab-ui.ts';
 
 // All electrical behaviour (battery, DC-DC / inverter conversion, loads, protection, energy ledger)
 // is computed by ONE deterministic engine in ./sim/. This file only draws its Snapshot and routes input.
@@ -733,16 +734,16 @@ function triggerSpark(center: THREE.Vector3) {
 let isOn = false;
 let sourceMode: SourceMode = 'AC';
 let snap: Snapshot = engine.snapshot(); // single authoritative electrical state (see ./sim/engine.ts)
-const OPEN_CONNECTION: Connection = { kind: 'open' };
-const SHORT_CONNECTION: Connection = { kind: 'short' };
-let attachedLoad: Connection | null = null; // optional engine-level load (see window.voltaLab)
+// ONE owner of the output connection (open | short | load). Physical wire contact is only an input to it: a connected
+// Load Lab load always wins, so touching the tips can never silently replace the user's load with a short.
+const coordinator = new ConnectionCoordinator();
 let lastSyncKey = '';
 function syncEngineInputs(contact: boolean) {
-  const connection = contact ? SHORT_CONNECTION : attachedLoad ?? OPEN_CONNECTION;
-  const key = `${isOn}|${sourceMode}|${targetVoltage}|${contact ? 's' : attachedLoad ? 'l' : 'o'}`;
+  const resolved = coordinator.resolve(contact);
+  const key = `${isOn}|${sourceMode}|${targetVoltage}|${resolved.kind}|${coordinator.revision}`;
   if (key === lastSyncKey) return;
   lastSyncKey = key;
-  engine.setInputs({ powerOn: isOn, mode: sourceMode === 'AC' ? 'ac' : 'dc', setpointV: targetVoltage, connection });
+  engine.setInputs({ powerOn: isOn, mode: sourceMode === 'AC' ? 'ac' : 'dc', setpointV: targetVoltage, connection: resolved.connection });
 }
 let targetVoltage = 220;
 let previousContact = false;
@@ -841,6 +842,8 @@ function setPower(value: boolean) {
   announce(isOn ? 'Main power on.' : 'Main power off.');
 }
 function touchWires() {
+  const guard = coordinator.canTouchLeads();
+  if (!guard.ok) { clearWireSelection(); showWireHint(guard.reason, false); return; } // a connected load is never replaced by a short
   setTip(0, -0.23, -1.09);
   setTip(1, 0.23, -1.09);
   tipsAtRest = false;
@@ -888,6 +891,7 @@ const LEAD_NAME = ['Lead A', 'Lead B'] as const;
 let selectedTip = -1;
 let hoverTip = -1;
 let hintTimer = 0;
+let lastBlockedHintAt = 0;
 function showWireHint(text: string, persistent: boolean) {
   wireHint.textContent = text;
   wireHint.classList.add('show');
@@ -913,6 +917,7 @@ function selectTip(i: number) {
 function clickTip(i: number) {
   if (selectedTip < 0) selectTip(i);
   else if (selectedTip === i) { clearWireSelection(); showWireHint(`${LEAD_NAME[i]} deselected.`, false); }
+  else if (!coordinator.canTouchLeads().ok) touchWires(); // refused with an explanation
   else { touchWires(); showWireHint('Leads connected — output terminals are shorted together.', false); }
 }
 const tmpColor = new THREE.Color();
@@ -988,7 +993,14 @@ canvas.addEventListener('pointermove', (event) => {
     if (!tipDragging && Math.hypot(event.clientX - downX, event.clientY - downY) > dragThreshold) { tipDragging = true; tipsAtRest = false; }
     if (tipDragging) {
       setMouse(event); raycaster.setFromCamera(mouse, camera);
-      if (raycaster.ray.intersectPlane(dragPlane, dragPoint)) setTip(activeTip, dragPoint.x + grabOffset.x, dragPoint.y + grabOffset.y);
+      if (raycaster.ray.intersectPlane(dragPlane, dragPoint)) {
+        const before = tipGroups[activeTip].position.clone();
+        setTip(activeTip, dragPoint.x + grabOffset.x, dragPoint.y + grabOffset.y);
+        if (coordinator.loadConnected && hasContact()) { // dragging into the other tip would imply a short: refuse while a load is connected
+          setTip(activeTip, before.x, before.y);
+          if (performance.now() - lastBlockedHintAt > 2000) { lastBlockedHintAt = performance.now(); showWireHint('A load is connected. Disconnect it in Controls → Load Lab before touching the leads.', false); }
+        }
+      }
     }
     event.preventDefault();
     return;
@@ -1068,7 +1080,7 @@ const stageEl = document.querySelector('.stage') as HTMLElement;
 const panelToggle = $('panelToggle') as HTMLButtonElement;
 const controlPanel = $('controlPanel');
 controlPanel.tabIndex = -1; // focusable by script only
-const TAB_IDS = ['controls', 'settings', 'help', 'learn', 'safety'] as const;
+const TAB_IDS = ['controls', 'loadlab', 'settings', 'help', 'learn', 'safety'] as const;
 type TabId = (typeof TAB_IDS)[number];
 const tabButtons = TAB_IDS.map((id) => $(`tab-${id}`) as HTMLButtonElement);
 const tabPanes = TAB_IDS.map((id) => $(`pane-${id}`));
@@ -1109,6 +1121,9 @@ function setPanel(open: boolean, tab?: TabId) {
 panelToggle.addEventListener('click', () => setPanel(!isPanelOpen()));
 $('panelClose').addEventListener('click', () => setPanel(false));
 function openHelp() { setPanel(true, 'help'); }
+// Load Lab (Controls → Load Lab): collects parameters, builds a typed Load through the existing factories and asks the coordinator to
+// connect it. Results are read from the engine snapshot only.
+const loadLab = initLoadLab({ coordinator, leadsTouching: hasContact, announce, forceSync: () => { lastSyncKey = ''; } });
 $('resetCameraBtn').addEventListener('click', () => { resetCamera(); announce('Camera view reset.'); });
 // Settings: camera behaviour radio group, the same setting as the header View button.
 const cameraRadios = Array.from(document.querySelectorAll<HTMLButtonElement>('#cameraModeRadios [role="radio"]'));
@@ -1212,6 +1227,7 @@ function animate() {
     announce(`Protective shutdown: ${snap.protection.message} Turn main power off and on to reset.`);
   }
   const dState = displayState(snap);
+  loadLab.refresh(snap, elapsed);
   const poweredContact = dState === 'short' && snap.output.currentA > 0;
   if (poweredContact && (!previousContact || performance.now() - lastSparkAt > 125)) {
     const mid = exposedTipPosition(0).lerp(exposedTipPosition(1), 0.5).add(new THREE.Vector3(0, 0, 0.08));
@@ -1259,13 +1275,14 @@ function animate() {
     const protectedOff = dState === 'protected';
     const batteryEmpty = dState === 'empty';
     const loadOn = dState === 'load';
-    connectionPill.classList.toggle('connected', contact || loadOn);
-    connectionPill.innerHTML = `<i></i> ${protectedOff ? 'PROTECTED SHUTDOWN' : batteryEmpty ? 'BATTERY EMPTY' : contact ? (isOn ? 'SHORT CIRCUIT' : 'CONTACT / OFF') : attachedLoad ? 'LOAD CONNECTED' : 'OPEN CIRCUIT'}`;
-    leadAState.textContent = batteryEmpty ? 'DISABLED' : protectedOff ? 'TRIPPED' : contact ? (isOn ? 'SHORT' : 'CONTACT') : isOn ? 'LIVE' : 'READY';
-    leadBState.textContent = batteryEmpty ? 'DISABLED' : protectedOff ? 'TRIPPED' : contact ? (isOn ? 'SHORT' : 'CONTACT') : 'READY';
+    const shortTest = contact && !coordinator.loadConnected; // with a load connected, touching leads is not a short (see ConnectionCoordinator)
+    connectionPill.classList.toggle('connected', shortTest || coordinator.loadConnected);
+    connectionPill.innerHTML = `<i></i> ${protectedOff ? 'PROTECTED SHUTDOWN' : batteryEmpty ? 'BATTERY EMPTY' : shortTest ? (isOn ? 'SHORT CIRCUIT' : 'CONTACT / OFF') : coordinator.loadConnected ? 'LOAD CONNECTED' : 'OPEN CIRCUIT'}`;
+    leadAState.textContent = batteryEmpty ? 'DISABLED' : protectedOff ? 'TRIPPED' : shortTest ? (isOn ? 'SHORT' : 'CONTACT') : isOn ? 'LIVE' : 'READY';
+    leadBState.textContent = batteryEmpty ? 'DISABLED' : protectedOff ? 'TRIPPED' : shortTest ? (isOn ? 'SHORT' : 'CONTACT') : 'READY';
     leadAState.classList.toggle('hot', poweredContact); leadBState.classList.toggle('hot', poweredContact);
     arcStatus.classList.toggle('active', poweredContact);
-    arcState.textContent = batteryEmpty ? 'EMPTY' : protectedOff ? 'TRIPPED' : poweredContact ? (o.currentLimited ? 'LIMITED' : 'ACTIVE') : contact ? 'NO POWER' : 'IDLE';
+    arcState.textContent = batteryEmpty ? 'EMPTY' : protectedOff ? 'TRIPPED' : poweredContact ? (o.currentLimited ? 'LIMITED' : 'ACTIVE') : shortTest ? 'NO POWER' : 'IDLE';
     const arcNote = $('arcStatus').querySelector('small')!;
     if (protectedOff) {
       arcNote.textContent = `${snap.protection.message ?? 'Protective shutdown latched.'} Turn MAIN POWER off, then on, to reset.`;
@@ -1302,11 +1319,12 @@ interface VoltaLabApi {
   engine,
   snapshot: () => engine.snapshot(),
   // Validated at the API boundary: an invalid load throws a RangeError naming the parameter and is NOT attached.
+  // Goes through the same coordinator as the Load Lab UI (validation, own frozen copy, refused while the leads touch).
   attachLoad: (load, reversed = false) => {
-    validateLoad(load);
-    if (typeof reversed !== 'boolean') throw new RangeError(`reversed must be a boolean; got ${String(reversed)}`);
-    attachedLoad = { kind: 'load', load: deepFreeze(structuredClone(load)), reversed }; lastSyncKey = ''; // own frozen copy: later mutation of the caller's object cannot bypass validation
+    const r = coordinator.connectLoad(load, hasContact(), reversed);
+    if (!r.ok) throw new Error(r.reason);
+    lastSyncKey = '';
   },
-  detachLoad: () => { attachedLoad = null; lastSyncKey = ''; },
+  detachLoad: () => { coordinator.disconnectLoad(); lastSyncKey = ''; },
   loads: { resistiveLoad, inductiveLoad, capacitiveLoad, rlcLoad, acInputSupplyLoad, dcMotorLoad, dcModuleLoad },
 };

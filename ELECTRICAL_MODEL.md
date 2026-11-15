@@ -159,6 +159,18 @@ separately (< 1 % of input) and shrinks with the step. The averaged converter ha
 neglected storage is at most ≈ 41 J + 0.011 J (≈ 0.011 Wh), once, when the set-point changes (quantified in `ledger.test.ts`).
 When the battery runs out inside a step, only the charge that was left is delivered (output and ledger are scaled by the active fraction).
 
+### Load Lab V1 (Controls → Load Lab): what is connected to the output
+The output has three **mutually exclusive** connection states in the engine: `open` (nothing connected, 0 A), `short` (the lead tips touch: a fault test) and
+`load` (one validated modelled load across the output). `ConnectionCoordinator` (`src/sim/loadlab.ts`) is the single owner of that state. Touching the
+physical lead tips is only an *input* to it: while a load is connected, touching the tips (button, T key, click-click, dragging) is refused with an explanation
+and the engine is never switched from `load` to `short`. A load cannot be connected while the tips touch. Changing AC/DC keeps the load, Main Power and SOC.
+
+Five loads only, all built by the existing factories in `loads.ts` (no equations were added to the UI): resistor, inductor (R + L), capacitor in series (C + ESR),
+series RLC and DC motor (steady-state equivalent: no inertia or start-up). The AC-input supply and DC module factories exist but are **planned for V1.1** and
+are not offered. Typed values are converted to SI (Ω/kΩ/mΩ, H/mH/µH, µF/mF/nF/F), range-checked and then re-validated by `validateLoad`; nothing is clamped.
+Provenance: untouched example values are `illustrative-fixture`; anything the user types is `user-specified`. Neither is a manufacturer rating.
+Results shown are copied from the engine snapshot; apparent power, reactive power and power factor are shown as "not defined" in DC rather than invented.
+
 ### Beginner glossary
 * **RMS voltage** — the steady DC-equivalent heating value of AC. **Peak** is the top of the wave (√2 × RMS).
 * **Current (A)** — flow of charge; **power (W)** = V × I (AC real power also × power factor).

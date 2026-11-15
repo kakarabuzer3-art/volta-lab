@@ -129,7 +129,13 @@ test('homepage: simulation-only and short-circuit wording is present before risk
 
 test('homepage: no unsupported claims about solar, MPPT, mains supply or three-phase output', () => {
   const visible = html.replace(/<script[\s\S]*?<\/script>/g, '');
-  assert.ok(!/\bMPPT\b|solar (panel|charger|PV)|photovoltaic/i.test(visible.replace(/It does not simulate[^<]*/g, '')));
+  // The Control Room roadmap may NAME future phases (e.g. solar / MPPT) only inside its explicitly labelled "planned, not available
+  // yet" block. That block is checked separately below; everywhere else the original claim scan still applies unchanged.
+  const roadmap = /<details class="ll-roadmap">[\s\S]*?<\/details>/.exec(visible)?.[0] ?? '';
+  assert.match(roadmap, /planned, not available yet/i);
+  assert.match(roadmap, /None of these exist yet/);
+  const outsideRoadmap = visible.replace(roadmap, '');
+  assert.ok(!/\bMPPT\b|solar (panel|charger|PV)|photovoltaic/i.test(outsideRoadmap.replace(/It does not simulate[^<]*/g, '')));
 });
 
 // ---------------------------------------------------------------- robots, sitemap, Learning Hub

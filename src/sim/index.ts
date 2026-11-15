@@ -8,3 +8,4 @@ export * from './loads.ts';
 export * from './engine.ts';
 export * from './validate.ts';
 export * from './status.ts';
+export * from './loadlab.ts';

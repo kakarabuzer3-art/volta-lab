@@ -574,16 +574,18 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
     await ctx.close();
   }
 
-  // ---- Controls panel: five tabs, all content reachable inside it
+  // ---- Controls panel: six tabs (Load Lab added in V1), all content reachable inside it
   {
     const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } }); await ctx.addInitScript(SEEN_INIT);
     const pg = await ctx.newPage(); await gotoReady(pg);
     await pg.click('#panelToggle'); await pg.waitForTimeout(500);
     const names = await pg.evaluate(() => [...document.querySelectorAll('[role=tab]')].map((t) => t.getAttribute('aria-label') || t.textContent.trim()));
-    ok('Controls panel has the five sections as tabs', names.join('|') === 'Controls|Settings|Help|Learning Hub|Limitations & Safety', names.join('|'));
+    ok('Controls panel has the six sections as tabs', names.join('|') === 'Controls|Load Lab|Settings|Help|Learning Hub|Limitations & Safety', names.join('|'));
     ok('Controls tab holds Main Power, AC/DC, voltage, wire and camera controls', (await pg.evaluate(() => ['powerBtn', 'modeAcBtn', 'modeDcBtn', 'voltageSlider', 'touchWiresBtn', 'separateWiresBtn', 'resetCameraBtn'].every((i) => document.getElementById('pane-controls').contains(document.getElementById(i))))));
     await pg.focus('#tab-controls'); await pg.keyboard.press('ArrowRight'); await pg.waitForTimeout(150);
-    ok('ArrowRight on the tab list selects and focuses the next tab', (await pg.evaluate(() => document.activeElement.id)) === 'tab-settings' && (await attr(pg, '#tab-settings', 'aria-selected')) === 'true' && !(await pg.locator('#pane-settings').isHidden()));
+    ok('ArrowRight on the tab list selects and focuses the next tab (Load Lab)', (await pg.evaluate(() => document.activeElement.id)) === 'tab-loadlab' && (await attr(pg, '#tab-loadlab', 'aria-selected')) === 'true' && !(await pg.locator('#pane-loadlab').isHidden()));
+    await pg.keyboard.press('ArrowRight'); await pg.waitForTimeout(150);
+    ok('ArrowRight again reaches Settings', (await pg.evaluate(() => document.activeElement.id)) === 'tab-settings' && (await attr(pg, '#tab-settings', 'aria-selected')) === 'true' && !(await pg.locator('#pane-settings').isHidden()));
     ok('Settings tab: camera radio group with four options and a motion note', (await pg.locator('#cameraModeRadios [role=radio]').count()) === 4 && /reduce/i.test(await pg.locator('#motionSetting').textContent()));
     await pg.click('#cameraModeRadios [data-camera-mode="zoom-only"]'); await pg.waitForTimeout(200);
     ok('Settings camera mode changes the scene and the header button', (await attr(pg, '#sceneCanvas', 'data-camera-mode')) === 'zoom-only' && /ZOOM/i.test(await pg.locator('#cameraModeLabel').textContent()));
@@ -687,6 +689,139 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
     await pg.screenshot({ path: `${SHOT}/ux-learn-320.png`, fullPage: false });
     await ctx.close();
   }
+
+  // ---- Load Lab V1 (Controls → Load Lab): real UI interaction against the real engine
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } }); await ctx.addInitScript(SEEN_INIT);
+    const pg = await ctx.newPage(); await gotoReady(pg);
+    const lerrs = []; pg.on('pageerror', (e) => lerrs.push(e.message));
+    const sn = () => pg.evaluate(() => JSON.parse(JSON.stringify(window.voltaLab.snapshot())));
+    const ws = (fn, t = 40000) => pg.waitForFunction(`(${fn.toString()})(window.voltaLab.snapshot())`, null, { timeout: t });
+    const slider = (v) => pg.evaluate((x) => { const el = document.getElementById('voltageSlider'); el.value = String(x); el.dispatchEvent(new Event('input', { bubbles: true })); }, v);
+    const txt = (sel) => pg.evaluate((q) => (document.querySelector(q) || {}).textContent || '', sel);
+    const setField = async (key, value) => { await pg.fill(`#ll-${key}`, value); };
+    const openTab = async (id) => { await pg.click(`#tab-${id}`); await pg.waitForTimeout(250); };
+    const resultText = () => txt('#llResults');
+    const msgText = () => txt('#llMsg');
+    const hdrButtons = await pg.evaluate(() => document.querySelectorAll('.topbar button, header button').length);
+    ok('machine screen keeps exactly the three header buttons (nothing added outside Controls)', hdrButtons === 3, String(hdrButtons));
+    await pg.click('#panelToggle'); await pg.waitForTimeout(500);
+    await openTab('loadlab');
+    const cards = await pg.evaluate(() => [...document.querySelectorAll('#llLibrary [role=radio]')].map((b) => b.dataset.load));
+    ok('Load Lab library shows exactly the five V1 loads (no AC-input supply / DC module)', cards.join('|') === 'resistor|inductor|capacitor|rlc|dc-motor', cards.join('|'));
+    ok('each card states input support and a model limitation', await pg.evaluate(() => [...document.querySelectorAll('#llLibrary .ll-card')].every((c) => /Input/.test(c.textContent) && /Limit/.test(c.textContent))));
+    ok('roadmap is labelled planned and contains no interactive controls', await pg.evaluate(() => { const r = document.querySelector('.ll-roadmap'); return /planned, not available yet/i.test(r.textContent) && r.querySelectorAll('button, input, a, select').length === 0; }));
+    ok('example values are labelled illustrative', /ILLUSTRATIVE/.test(await txt('#llProvenance')));
+
+    // invalid input feedback, nothing reaches the engine
+    await setField('ohms', 'abc'); await pg.waitForTimeout(150);
+    ok('invalid text shows an error and aria-invalid', /plain number/.test(await txt('[data-field=ohms] .ll-err')) && (await attr(pg, '#ll-ohms', 'aria-invalid')) === 'true');
+    ok('typing a value switches provenance to user-specified', /user-specified/i.test(await txt('#llProvenance')));
+    await pg.click('#llConnectBtn'); await pg.waitForTimeout(500);
+    ok('Connect with invalid input is refused with a message and focus returns to the field', /Cannot connect/.test(await msgText()) && (await pg.evaluate(() => document.activeElement.id)) === 'll-ohms');
+    ok('engine connection stays open after the refused connect', (await sn()).inputs.connection === 'open');
+    for (const bad of ['-5', '0', 'Infinity', '1e999']) { await setField('ohms', bad); await pg.waitForTimeout(100); ok(`invalid resistance “${bad}” is rejected`, (await txt('[data-field=ohms] .ll-err')).length > 5); }
+    await pg.click('#llPreset'); await pg.waitForTimeout(200);
+    ok('“Use example values” restores a valid form', (await pg.inputValue('#ll-ohms')) === '50' && (await txt('[data-field=ohms] .ll-err')) === '');
+
+    // machine ON, AC 100 V, resistor 50 Ω through the real UI
+    await openTab('controls'); await pg.click('#powerBtn'); await slider(100);
+    await ws((x) => x.inputs.powerOn && Math.abs(x.output.targetV - 100) < 0.5);
+    await openTab('loadlab'); await pg.click('#llConnectBtn');
+    await ws((x) => x.inputs.connection === 'load' && Math.abs(x.output.voltage - 100) < 0.6); await pg.waitForTimeout(600);
+    let s = await sn();
+    ok('Connect load creates a real engine load connection: 50 Ω at 100 V AC → 2 A, 200 W', s.inputs.connection === 'load' && Math.abs(s.output.currentA - 2) < 0.02 && Math.abs(s.output.pRealW - 200) < 3, `${s.output.currentA} A ${s.output.pRealW} W`);
+    ok('status pill and Connect message agree with the engine', /LOAD CONNECTED/.test(await txt('#llStatusPill')) && /Connected: Resistor/.test(await msgText()), `${await txt('#llStatusPill')} | ${await msgText()}`);
+    const rt = await resultText();
+    ok('results show values copied from the snapshot (AC, 2.00 A RMS, power factor 1.000)', /AC/.test(rt) && /2\.0\d A RMS/.test(rt) && /1\.000/.test(rt), rt.replace(/\s+/g, ' ').slice(0, 220));
+    ok('data source is shown (illustrative example)', /Illustrative example/.test(rt));
+    const soc0 = s.battery.socFrac;
+
+    // AC → DC with the load attached: load, power and LCD stay; SOC does not reset
+    await openTab('controls'); await pg.click('#modeDcBtn');
+    await ws((x) => x.output.kind === 'dc' && x.inputs.connection === 'load' && Math.abs(x.output.voltage - 100) < 0.6); await pg.waitForTimeout(600);
+    s = await sn();
+    ok('AC→DC with a load: still connected, Main Power ON, 2 A DC, SOC not reset', s.inputs.connection === 'load' && s.inputs.powerOn && Math.abs(s.output.currentA - 2) < 0.02 && s.battery.socFrac <= soc0 && s.battery.socFrac > soc0 - 0.01, `${s.output.currentA} ${s.battery.socFrac}`);
+    ok('LCD stays lit after the mode change', (await attr(pg, '#sceneCanvas', 'data-display-lit')) === 'true');
+    await openTab('loadlab'); await pg.waitForTimeout(500);
+    const dcRt = await resultText();
+    ok('DC results show “not defined” for apparent/reactive power and power factor (never invented)', /DC/.test(dcRt) && (dcRt.match(/not defined/g) || []).length === 3, dcRt.replace(/\s+/g, ' ').slice(0, 260));
+
+    // wire conflict rule: a connected load is never replaced by touching the leads
+    await pg.click('#tab-controls'); await pg.click('#touchWiresBtn'); await pg.waitForTimeout(500);
+    ok('Touch wire ends is refused while a load is connected; engine stays on the load', (await sn()).inputs.connection === 'load' && /Disconnect it/.test(await txt('#wireHint')), await txt('#wireHint'));
+    await pg.keyboard.press('Escape'); await pg.waitForTimeout(200);
+    await pg.evaluate(() => document.activeElement && document.activeElement.blur());
+    await pg.keyboard.press('t'); await pg.waitForTimeout(500);
+    ok('keyboard T is refused the same way (still a load, no short)', (await sn()).inputs.connection === 'load');
+    // Disconnect, then short test works, then connecting while touching is refused
+    await pg.keyboard.press('p'); await pg.waitForTimeout(300); await openTab('loadlab');
+    await pg.click('#llDisconnectBtn'); await ws((x) => x.inputs.connection === 'open'); await pg.waitForTimeout(400);
+    s = await sn();
+    ok('Disconnect returns to an open circuit: 0 A, load gone from the snapshot', s.output.currentA === 0 && s.load === null && /NO LOAD/.test(await txt('#llStatusPill')));
+    await openTab('controls'); await pg.click('#touchWiresBtn'); await ws((x) => x.inputs.connection === 'short');
+    ok('after a deliberate disconnect, touching the leads is a short-circuit test again', (await sn()).inputs.connection === 'short');
+    await openTab('loadlab'); await pg.click('#llConnectBtn'); await pg.waitForTimeout(500);
+    ok('Connect load while the leads touch is refused with an explanation (short is not turned into a load)', (await sn()).inputs.connection !== 'load' && /Separate the leads first/.test(await msgText()), await msgText());
+    await openTab('controls'); await pg.click('#separateWiresBtn'); await ws((x) => x.inputs.connection === 'open');
+    await pg.click('#powerBtn'); await pg.waitForTimeout(200); await pg.click('#powerBtn'); await slider(100); // reset any trip from the short test
+    await ws((x) => x.inputs.powerOn && x.status !== 'tripped');
+
+    // every load connects and behaves per its model, using the real form
+    await openTab('loadlab');
+    const connectNow = async (id) => { await pg.click(`#llLibrary [data-load="${id}"]`); await pg.click('#llConnectBtn'); await ws((x) => x.inputs.connection === 'load'); await pg.waitForTimeout(700); return sn(); };
+    s = await connectNow('capacitor');
+    ok('capacitor in DC mode: blocks steady DC (0 A)', s.output.kind === 'dc' && s.output.currentA === 0 && /Capacitor/.test(s.load.label), `${s.output.currentA}`);
+    await openTab('controls'); await pg.click('#modeAcBtn'); await ws((x) => x.output.kind === 'ac'); await pg.waitForTimeout(700);
+    s = await sn();
+    ok('capacitor in AC mode at 100 V: I = V/XC ≈ 3.14 A', Math.abs(s.output.currentA - 3.1416) < 0.05, `${s.output.currentA}`);
+    await openTab('loadlab');
+    s = await connectNow('inductor');
+    ok('inductor in AC: I ≈ 2.69 A, PF ≈ 0.537, reactive power reported', Math.abs(s.output.currentA - 2.685) < 0.03 && Math.abs(s.load.op.powerFactor - 0.537) < 0.01 && s.load.op.qVAr > 200, `${s.output.currentA} ${s.load.op.powerFactor}`);
+    s = await connectNow('rlc');
+    ok('series RLC in AC: I ≈ 5.0 A', Math.abs(s.output.currentA - 4.998) < 0.05, `${s.output.currentA}`);
+    s = await connectNow('dc-motor');
+    ok('DC motor on AC is flagged unsupported with a causal reason', s.load.health.state !== 'normal' && s.load.health.reasons.some((r) => /rated for DC but is driven with AC/.test(r)), JSON.stringify(s.load.health.reasons));
+    ok('the reason is shown to the learner in the results', /rated for DC but is driven with AC/.test(await resultText()));
+    await openTab('controls'); await pg.click('#modeDcBtn'); await ws((x) => x.output.kind === 'dc'); await pg.waitForTimeout(900);
+    await openTab('loadlab'); await pg.click('#llConnectBtn'); await pg.waitForTimeout(900); // re-connect a fresh motor (health of the AC-driven one is not reused)
+    s = await sn();
+    ok('DC motor on DC at 100 V: steady-state current ≈ 0.79 A', Math.abs(s.output.currentA - 0.7937) < 0.03, `${s.output.currentA}`);
+    ok('Connect again replaces the load with an explicit message', /Replaced the previous load/.test(await msgText()), await msgText());
+
+    // keyboard: radiogroup arrow navigation, focus management
+    await pg.focus('#llLibrary [data-load="resistor"]'); await pg.keyboard.press('ArrowDown'); await pg.waitForTimeout(250);
+    ok('ArrowDown in the library moves selection and focus to the next load', (await pg.evaluate(() => document.activeElement.dataset.load)) === 'inductor' && (await attr(pg, '#llLibrary [data-load="inductor"]', 'aria-checked')) === 'true');
+    ok('exactly one library card is in the tab order (roving tabindex)', (await pg.evaluate(() => [...document.querySelectorAll('#llLibrary [role=radio]')].filter((b) => b.tabIndex === 0).length)) === 1);
+    const unlabeled = await pg.evaluate(() => [...document.querySelectorAll('#pane-loadlab input, #pane-loadlab select')].filter((i) => !(i.labels && i.labels.length) && !i.getAttribute('aria-label')).length);
+    ok('every Load Lab input and select has an accessible name', unlabeled === 0, String(unlabeled));
+    await pg.screenshot({ path: `${SHOT}/loadlab-desktop.png` });
+    await pg.click('#panelClose'); await pg.waitForTimeout(400);
+    ok('closing the panel leaves only the machine screen (no Load Lab UI visible)', !(await pg.locator('#llLibrary').isVisible()));
+    ok('no uncaught errors while using Load Lab', lerrs.length === 0, lerrs.slice(0, 2).join(' | '));
+    await ctx.close();
+  }
+
+  // ---- Load Lab on a 390 × 844 phone viewport (touch emulation, NOT a physical device)
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 }); await ctx.addInitScript(SEEN_INIT);
+    const pg = await ctx.newPage(); await gotoReady(pg);
+    const sn = () => pg.evaluate(() => JSON.parse(JSON.stringify(window.voltaLab.snapshot())));
+    await pg.tap('#panelToggle'); await pg.waitForTimeout(600); await pg.tap('#tab-loadlab'); await pg.waitForTimeout(400);
+    const m = await pg.evaluate(() => {
+      const r = (id) => document.getElementById(id).getBoundingClientRect();
+      const small = [...document.querySelectorAll('#pane-loadlab button, #pane-loadlab input, #pane-loadlab select, #pane-loadlab summary')].filter((e) => e.offsetParent !== null && e.getBoundingClientRect().height < 44 && e.getBoundingClientRect().height > 0).map((e) => e.id || e.className);
+      return { overflow: document.documentElement.scrollWidth > innerWidth + 1, small, connectH: r('llConnectBtn').height };
+    });
+    ok('phone 390px: no horizontal overflow and Load Lab touch targets ≥ 44px', !m.overflow && m.small.length === 0, JSON.stringify(m));
+    await pg.tap('#llConnectBtn'); await pg.waitForFunction(() => window.voltaLab.snapshot().inputs.connection === 'load', null, { timeout: 30000 });
+    ok('phone: tapping Connect load attaches a real engine load', (await sn()).inputs.connection === 'load');
+    await pg.screenshot({ path: `${SHOT}/loadlab-phone.png` });
+    await pg.tap('#llDisconnectBtn'); await pg.waitForFunction(() => window.voltaLab.snapshot().inputs.connection === 'open', null, { timeout: 30000 });
+    ok('phone: tapping Disconnect returns to open circuit', (await sn()).inputs.connection === 'open');
+    await ctx.close();
+  }
+
   const real = errors.filter((e) => !/ERR_TUNNEL|ERR_NAME_NOT_RESOLVED|fonts\.g/.test(e));
   ok('no JavaScript console/page errors (blocked external font requests ignored)', real.length === 0, real.slice(0, 3).join(' | '));
   console.log(results.join('\n')); console.log(failed ? `\n${failed} FAILED` : `\nALL ${results.length} CHECKS PASSED`);

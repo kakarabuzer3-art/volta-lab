@@ -64,6 +64,7 @@
           <div class="panel-head">
             <div class="tabs" role="tablist" aria-label="Controls panel sections">
               <button id="tab-controls" class="tab" type="button" role="tab" aria-selected="true" aria-controls="pane-controls" data-tab="controls">Controls</button>
+              <button id="tab-loadlab" class="tab" type="button" role="tab" aria-selected="false" aria-controls="pane-loadlab" data-tab="loadlab" tabindex="-1">Load Lab</button>
               <button id="tab-settings" class="tab" type="button" role="tab" aria-selected="false" aria-controls="pane-settings" data-tab="settings" tabindex="-1">Settings</button>
               <button id="tab-help" class="tab" type="button" role="tab" aria-selected="false" aria-controls="pane-help" data-tab="help" tabindex="-1">Help</button>
               <button id="tab-learn" class="tab" type="button" role="tab" aria-selected="false" aria-controls="pane-learn" data-tab="learn" tabindex="-1" aria-label="Learning Hub" title="Learning Hub">Learn</button>
@@ -111,6 +112,44 @@
                 <div class="card-heading"><div><h2>Camera</h2></div></div>
                 <p class="micro-copy">Drag the scene to orbit, scroll or pinch to zoom. The detail view and camera buttons are in the top bar.</p>
                 <button id="resetCameraBtn" class="secondary-action reset-view" type="button">RESET VIEW <kbd>R</kbd></button>
+              </section>
+            </section>
+
+            <section id="pane-loadlab" class="pane" role="tabpanel" aria-labelledby="tab-loadlab" tabindex="-1" hidden>
+              <section class="control-card ll-card-wrap" aria-labelledby="llHeading">
+                <div class="card-heading"><div><h2 id="llHeading">Load Lab</h2></div><span class="connection-state" id="llStatusPill"><i></i> NO LOAD</span></div>
+                <p class="micro-copy">Connect a modelled electrical load across the output and watch how the engine responds. Everything is a software model: nothing real is energised, and values are not manufacturer ratings.</p>
+
+                <h3 class="ll-step"><span>1</span> Choose a load</h3>
+                <div id="llLibrary" class="ll-library" role="radiogroup" aria-label="Load library"></div>
+
+                <h3 class="ll-step"><span>2</span> Configure</h3>
+                <div id="llForm" class="ll-form"></div>
+
+                <h3 class="ll-step"><span>3</span> Connect</h3>
+                <div id="llConnect" class="ll-connect"></div>
+                <p class="micro-copy">Open circuit, short circuit and load are different states. Touching the lead tips is a fault test; a load is connected here instead. While a load is connected the tips cannot be touched together.</p>
+
+                <h3 class="ll-step"><span>4</span> Results</h3>
+                <div id="llResults" class="ll-results-host" aria-live="off"></div>
+              </section>
+
+              <section class="control-card">
+                <details class="ll-roadmap">
+                  <summary>Roadmap: planned, not available yet</summary>
+                  <ul class="plain-list">
+                    <li><b>V1.1</b> AC-input supply and DC electronic module loads</li>
+                    <li><b>V2</b> Measurement Bench and virtual oscilloscope</li>
+                    <li><b>V3</b> Guided student practical labs</li>
+                    <li><b>V4</b> Engineering Design Studio</li>
+                    <li><b>V5</b> Component library with manufacturer data</li>
+                    <li><b>V6</b> Switching-level (SPICE) simulation</li>
+                    <li><b>V7</b> Solar PV and MPPT systems</li>
+                    <li><b>V8</b> Hardware integration</li>
+                    <li><b>V9</b> AI engineering assistant</li>
+                  </ul>
+                  <p class="micro-copy">None of these exist yet. Only the five loads above are active.</p>
+                </details>
               </section>
             </section>
 
