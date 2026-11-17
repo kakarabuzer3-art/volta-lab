@@ -205,3 +205,42 @@ test('learning pages: quoted model constants match the engine', async () => {
 test('learn.css embeds the current design tokens', () => {
   assert.ok(read('public/learn/learn.css').startsWith(read('src/tokens.css')));
 });
+
+// ---------------------------------------------------------------- Component Workbench shell (Phase 1A)
+test('workbench: entry button is separate from the machine header, which keeps exactly its three buttons', () => {
+  const html = read('index.html');
+  const header = /<header class="topbar">[\s\S]*?<\/header>/.exec(html)?.[0] ?? '';
+  assert.equal((header.match(/<button\b/g) ?? []).length, 3);
+  for (const id of ['panelToggle', 'explodeBtn', 'cameraModeBtn']) assert.ok(header.includes(`id="${id}"`), id);
+  assert.ok(!header.includes('workbenchBtn'), 'the Workbench button must not be inside the machine header');
+  const entry = /<div class="workbench-entry">[\s\S]*?<\/div>/.exec(html)?.[0] ?? '';
+  assert.match(entry, /id="workbenchBtn"/);
+  assert.match(entry, /aria-controls="workbench"/);
+  assert.match(entry, /aria-label="Component Workbench"/);
+});
+
+test('workbench: modal dialog with left library, centre work area and right properties, outside #app, honest empty states', () => {
+  const html = read('index.html');
+  const wb = /<div id="workbench"[\s\S]*?\n    <\/div>\n/.exec(html)?.[0] ?? '';
+  assert.match(wb, /role="dialog"[^>]*aria-modal="true"[^>]*aria-labelledby="wbTitle"[^>]*hidden/);
+  const order = ['library', 'workspace', 'properties'].map((r) => wb.indexOf(`data-wb-region="${r}"`));
+  assert.ok(order.every((i) => i > 0) && order[0] < order[1] && order[1] < order[2], 'regions in left, centre, right order');
+  assert.equal((wb.match(/<section class="wb-region/g) ?? []).length, 3);
+  for (const h of ['Component library', 'Work area', 'Properties']) assert.ok(wb.includes(`>${h}</h3>`), h);
+  assert.ok(wb.includes('id="wbClose"'));
+  // Phase 1A has no catalogue: no component names or fake controls inside the shell.
+  assert.ok(!/resistor|capacitor|inductor|mosfet|transistor|diode|<input|<select|<canvas/i.test(wb), 'no components or fake controls');
+  // #app must close before the dialog so that making #app inert cannot make the dialog inert, and it must be in <body>, not <head>.
+  const between = html.slice(html.indexOf('</main>') + '</main>'.length, html.indexOf('<div id="workbench"')).replace(/\s+/g, ' ').trim();
+  assert.equal(between, '</div>', 'dialog follows the closing of #app directly');
+  assert.ok(html.indexOf('<div id="workbench"') > html.indexOf('<body>'));
+});
+
+test('workbench: Load Lab is still in the Control Room for now (moves in Phase 1B), and the shell is wired in entry.ts', () => {
+  const html = read('index.html');
+  const wb = /<div id="workbench"[\s\S]*?\n    <\/div>\n/.exec(html)?.[0] ?? '';
+  assert.ok(html.includes('id="pane-loadlab"') && html.includes('id="tab-loadlab"'));
+  assert.ok(!wb.includes('pane-loadlab') && !wb.includes('llLibrary'));
+  assert.match(read('src/entry.ts'), /import '\.\/workbench-ui\.ts';/);
+  assert.match(read('src/main.ts'), /classList\.contains\('workbench-open'\)\) return;/);
+});

@@ -822,6 +822,103 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
     await ctx.close();
   }
 
+
+  // ---- Component Workbench shell (Phase 1A): separate full-screen workspace, machine state untouched while it is open
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } }); await ctx.addInitScript(SEEN_INIT);
+    const pg = await ctx.newPage(); await gotoReady(pg);
+    const werrs = []; pg.on('pageerror', (e) => werrs.push(e.message));
+    const sn = () => pg.evaluate(() => JSON.parse(JSON.stringify(window.voltaLab.snapshot())));
+    const ws = (fn, t = 40000) => pg.waitForFunction(`(${fn.toString()})(window.voltaLab.snapshot())`, null, { timeout: t });
+    const box = (sel) => pg.evaluate((q) => { const r = document.querySelector(q).getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, h: r.height }; }, sel);
+    const wbBtn = await box('#workbenchBtn');
+    const hdrBtns = await pg.evaluate(() => document.querySelectorAll('.topbar button, header button').length);
+    ok('Workbench button sits at the TOP-LEFT of the machine screen, outside the three-button header', wbBtn.l < 60 && wbBtn.t < 40 && hdrBtns === 3 && (await pg.evaluate(() => !document.querySelector('.topbar').contains(document.getElementById('workbenchBtn')))), JSON.stringify(wbBtn));
+    ok('Workbench is closed on load (hidden, aria-expanded=false)', (await pg.locator('#workbench').isHidden()) && (await attr(pg, '#workbenchBtn', 'aria-expanded')) === 'false');
+
+    // machine state to preserve: power ON, 120 V, a connected resistor load, a non-default camera mode
+    await pg.click('#cameraModeBtn'); await pg.waitForTimeout(300); await pg.click('#cameraModeBtn'); await pg.waitForTimeout(300); // FREE -> LOCKED -> ZOOM ONLY (so a leaked wheel event WOULD move the camera)
+    const camMode = await attr(pg, '#sceneCanvas', 'data-camera-mode');
+    await pg.click('#panelToggle'); await pg.waitForTimeout(500); await pg.click('#powerBtn');
+    await pg.evaluate(() => { const el = document.getElementById('voltageSlider'); el.value = '120'; el.dispatchEvent(new Event('input', { bubbles: true })); });
+    await ws((x) => x.inputs.powerOn && Math.abs(x.output.targetV - 120) < 0.5);
+    await pg.evaluate(() => window.voltaLab.attachLoad(window.voltaLab.loads.resistiveLoad(50)));
+    await ws((x) => x.inputs.connection === 'load' && Math.abs(x.output.currentA - 2.4) < 0.05); await pg.click('#panelClose'); await pg.waitForTimeout(400);
+    const before = await sn(); const camPos0 = await attr(pg, '#sceneCanvas', 'data-camera-position');
+
+    await pg.click('#workbenchBtn'); await pg.waitForTimeout(400);
+    ok('clicking Workbench opens a visible full-screen dialog and sets aria-expanded', (await pg.locator('#workbench').isVisible()) && (await attr(pg, '#workbenchBtn', 'aria-expanded')) === 'true');
+    const wbBox = await box('#workbench');
+    ok('the dialog covers the whole viewport', wbBox.l === 0 && wbBox.t === 0 && Math.abs(wbBox.w - 1440) < 1 && Math.abs(wbBox.h - 900) < 1, JSON.stringify(wbBox));
+    ok('focus moves to the dialog title', (await pg.evaluate(() => document.activeElement.id)) === 'wbTitle');
+    ok('the machine page is inert while the Workbench is open (modal)', await pg.evaluate(() => document.getElementById('app').inert === true && document.getElementById('workbench').inert !== true));
+    const rg = await pg.evaluate(() => ['library', 'workspace', 'properties'].map((r) => { const e = document.querySelector(`[data-wb-region="${r}"]`); const b = e.getBoundingClientRect(); return { r, l: b.left, w: b.width, h: b.height, vis: b.width > 0 && b.height > 0, name: e.getAttribute('aria-labelledby') && document.getElementById(e.getAttribute('aria-labelledby')).textContent }; }));
+    ok('three labelled areas are visible side by side: library (left), work area (centre), properties (right)', rg.every((x) => x.vis) && rg[0].l < rg[1].l && rg[1].l < rg[2].l && rg[1].w > rg[0].w && rg.map((x) => x.name).join('|') === 'Component library|Work area|Properties', JSON.stringify(rg));
+    ok('desktop: the area switcher is hidden (all three areas show at once)', !(await pg.locator('.wb-switch').isVisible()));
+    ok('no components or controls are faked inside the shell', (await pg.evaluate(() => document.querySelectorAll('#workbench input, #workbench select, #workbench canvas').length)) === 0);
+
+    // keyboard: the machine shortcuts must not act behind the dialog; the machine keeps running
+    for (const k of ['Space', 't', 's', 'm', 'x', 'r', 'p', 'ArrowUp', 'ArrowDown', '?']) { await pg.keyboard.press(k); }
+    await pg.waitForTimeout(1200);
+    const during = await sn();
+    ok('machine shortcuts (Space, T, S, M, X, R, P, arrows, ?) do nothing while the Workbench is open', during.inputs.powerOn === before.inputs.powerOn && during.inputs.mode === before.inputs.mode && during.inputs.connection === 'load' && Math.abs(during.inputs.setpointV - before.inputs.setpointV) < 0.01 && (await pg.locator('#controlPanel').isHidden() || !(await pg.evaluate(() => document.querySelector('.stage').classList.contains('panel-open')))), JSON.stringify({ p: during.inputs.powerOn, m: during.inputs.mode, c: during.inputs.connection, v: during.inputs.setpointV }));
+    ok('the engine is still alive: output current, battery SOC (not reset) and LCD are consistent', Math.abs(during.output.currentA - 2.4) < 0.05 && during.battery.socFrac <= before.battery.socFrac && during.battery.socFrac > before.battery.socFrac - 0.01 && (await attr(pg, '#sceneCanvas', 'data-display-lit')) === 'true', `${during.output.currentA} ${before.battery.socFrac}->${during.battery.socFrac}`);
+    await pg.mouse.move(720, 450); await pg.mouse.wheel(0, -400); await pg.mouse.down(); await pg.mouse.move(900, 500, { steps: 5 }); await pg.mouse.up(); await pg.waitForTimeout(600);
+    ok('wheel and drag over the dialog do not move the camera behind it', (await attr(pg, '#sceneCanvas', 'data-camera-position')) === camPos0);
+
+    // Tab stays inside the dialog (focus trap), both directions
+    const inside = [];
+    for (let i = 0; i < 8; i++) { await pg.keyboard.press('Tab'); inside.push(await pg.evaluate(() => document.getElementById('workbench').contains(document.activeElement))); }
+    for (let i = 0; i < 4; i++) { await pg.keyboard.press('Shift+Tab'); inside.push(await pg.evaluate(() => document.getElementById('workbench').contains(document.activeElement))); }
+    ok('Tab and Shift+Tab never leave the open dialog', inside.every(Boolean), inside.join(','));
+
+    // Escape closes, focus returns to the opener, everything is restored
+    await pg.keyboard.press('Escape'); await pg.waitForTimeout(300);
+    ok('Escape closes the Workbench and returns focus to the Workbench button', (await pg.locator('#workbench').isHidden()) && (await pg.evaluate(() => document.activeElement.id)) === 'workbenchBtn' && (await attr(pg, '#workbenchBtn', 'aria-expanded')) === 'false');
+    ok('the machine page is interactive again (not inert)', await pg.evaluate(() => document.getElementById('app').inert === false));
+    const after = await sn();
+    ok('after closing: Main Power, mode, 120 V set-point, connected load, camera mode and camera position are all unchanged', after.inputs.powerOn && after.inputs.mode === before.inputs.mode && after.inputs.connection === 'load' && Math.abs(after.inputs.setpointV - 120) < 0.01 && (await attr(pg, '#sceneCanvas', 'data-camera-mode')) === camMode && (await attr(pg, '#sceneCanvas', 'data-camera-position')) === camPos0 && /Resistive|Resistor/.test(after.load.label), `${after.load && after.load.label}`);
+    await pg.keyboard.press('x'); await ws((x) => !x.inputs.powerOn);
+    ok('machine shortcuts work again after closing (X = emergency power off)', !(await sn()).inputs.powerOn);
+    ok('Load Lab is untouched: still a tab in Controls (moves in Phase 1B)', await pg.evaluate(() => !!document.getElementById('tab-loadlab') && document.getElementById('controlPanel').contains(document.getElementById('pane-loadlab'))));
+
+    // the Close button path
+    await pg.click('#workbenchBtn'); await pg.waitForTimeout(300); await pg.click('#wbClose'); await pg.waitForTimeout(300);
+    ok('the “Machine” close button also closes and returns focus', (await pg.locator('#workbench').isHidden()) && (await pg.evaluate(() => document.activeElement.id)) === 'workbenchBtn');
+    await pg.screenshot({ path: `${SHOT}/workbench-closed-1440.png` });
+    await pg.click('#workbenchBtn'); await pg.waitForTimeout(400); await pg.screenshot({ path: `${SHOT}/workbench-open-1440.png` });
+    ok('no uncaught errors while opening and closing the Workbench on desktop', werrs.length === 0, werrs.slice(0, 2).join(' | '));
+    await ctx.close();
+  }
+  for (const [w, h, touch, label] of [[820, 1180, true, 'tablet 820'], [390, 844, true, 'phone 390'], [320, 640, true, 'narrow 320']]) {
+    const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: touch, isMobile: w < 700, deviceScaleFactor: 2 }); await ctx.addInitScript(SEEN_INIT);
+    const pg = await ctx.newPage(); await gotoReady(pg);
+    const m0 = await pg.evaluate(() => {
+      const r = (e) => e.getBoundingClientRect();
+      const wb = r(document.getElementById('workbenchBtn')); const others = [...document.querySelectorAll('.topbar button')].map(r);
+      const overlap = others.some((o) => !(o.right <= wb.left || o.left >= wb.right || o.bottom <= wb.top || o.top >= wb.bottom));
+      return { wb: { l: wb.left, t: wb.top, w: wb.width, h: wb.height }, overlap, overflow: document.documentElement.scrollWidth > innerWidth + 1, offscreen: wb.left < 0 || wb.right > innerWidth };
+    });
+    ok(`${label}: Workbench button is on screen, ≥44px, does not overlap the three header buttons, no overflow`, !m0.overlap && !m0.overflow && !m0.offscreen && m0.wb.h >= 44 && m0.wb.w >= 44, JSON.stringify(m0));
+    await pg.tap('#workbenchBtn'); await pg.waitForTimeout(500);
+    const m = await pg.evaluate(() => {
+      const vis = (sel) => { const e = document.querySelector(sel); const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0 && getComputedStyle(e).display !== 'none'; };
+      const small = [...document.querySelectorAll('#workbench button')].filter((b) => b.offsetParent !== null && b.getBoundingClientRect().height < 44).map((b) => b.id || b.textContent);
+      return { overflow: document.documentElement.scrollWidth > innerWidth + 1 || document.getElementById('workbench').scrollWidth > innerWidth + 1, switcher: vis('.wb-switch'), lib: vis('[data-wb-region=library]'), ws: vis('[data-wb-region=workspace]'), props: vis('[data-wb-region=properties]'), small };
+    });
+    const narrow = w <= 900;
+    ok(`${label}: Workbench opens, no horizontal overflow, buttons ≥44px, one area at a time with a switcher`, m.overflow === false && m.small.length === 0 && m.switcher === narrow && m.lib && !m.ws && !m.props, JSON.stringify(m));
+    await pg.tap('[data-wb-area=workspace]'); await pg.waitForTimeout(250);
+    const a2 = await pg.evaluate(() => ({ ws: getComputedStyle(document.querySelector('[data-wb-region=workspace]')).display !== 'none', lib: getComputedStyle(document.querySelector('[data-wb-region=library]')).display !== 'none', pressed: document.querySelector('[data-wb-area=workspace]').getAttribute('aria-pressed') }));
+    await pg.tap('[data-wb-area=properties]'); await pg.waitForTimeout(250);
+    const a3 = await pg.evaluate(() => ({ props: getComputedStyle(document.querySelector('[data-wb-region=properties]')).display !== 'none', ws: getComputedStyle(document.querySelector('[data-wb-region=workspace]')).display !== 'none' }));
+    ok(`${label}: switching areas shows each of Work area and Properties alone and updates aria-pressed`, a2.ws && !a2.lib && a2.pressed === 'true' && a3.props && !a3.ws, JSON.stringify({ a2, a3 }));
+    await pg.screenshot({ path: `${SHOT}/workbench-${w}.png` });
+    await pg.tap('#wbClose'); await pg.waitForTimeout(400);
+    ok(`${label}: closing returns to the machine screen with focus on the Workbench button`, (await pg.locator('#workbench').isHidden()) && (await pg.evaluate(() => document.activeElement.id)) === 'workbenchBtn');
+    await ctx.close();
+  }
+
   const real = errors.filter((e) => !/ERR_TUNNEL|ERR_NAME_NOT_RESOLVED|fonts\.g/.test(e));
   ok('no JavaScript console/page errors (blocked external font requests ignored)', real.length === 0, real.slice(0, 3).join(' | '));
   console.log(results.join('\n')); console.log(failed ? `\n${failed} FAILED` : `\nALL ${results.length} CHECKS PASSED`);

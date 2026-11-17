@@ -1,6 +1,7 @@
 // Entry point. The page shell (header, controls, Help text) is plain HTML + CSS and paints first; the 3D engine (Three.js and the
 // simulator, the bulk of the JavaScript) is loaded as a separate chunk right after, so it no longer blocks first paint.
 import './style.css';
+import './workbench-ui.ts';
 
 const status = document.getElementById('sceneLoading');
 import('./main.ts')

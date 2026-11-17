@@ -43,6 +43,13 @@
           </div>
         </section>
 
+        <div class="workbench-entry">
+          <button id="workbenchBtn" class="tool-btn workbench-btn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="workbench" aria-label="Component Workbench" title="Component Workbench">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5"/><path d="M10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4"/></svg>
+            <span class="tool-text">Workbench</span>
+          </button>
+        </div>
+
         <header class="topbar">
           <div class="topbar-actions" role="group" aria-label="Simulator toolbar">
             <button id="panelToggle" class="tool-btn panel-toggle" type="button" aria-expanded="false" aria-controls="controlPanel" aria-label="Controls" title="Controls (P)">
@@ -248,6 +255,38 @@
           </div>
         </aside>
       </main>
+    </div>
+    <div id="workbench" class="workbench" role="dialog" aria-modal="true" aria-labelledby="wbTitle" hidden>
+      <div class="wb-head">
+        <div class="wb-head-text">
+          <h2 id="wbTitle" tabindex="-1">Component Workbench</h2>
+          <p>Electronics component workspace. This is the empty shell: the library, work area and properties panel are laid out, but no components exist yet.</p>
+        </div>
+        <button id="wbClose" class="tool-btn wb-close" type="button" aria-label="Close Workbench and return to the machine">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+          <span class="tool-text">Machine</span>
+        </button>
+      </div>
+      <div class="wb-switch" role="group" aria-label="Show Workbench area">
+        <button type="button" class="wb-switch-btn" data-wb-area="library" aria-pressed="true">Library</button>
+        <button type="button" class="wb-switch-btn" data-wb-area="workspace" aria-pressed="false">Work area</button>
+        <button type="button" class="wb-switch-btn" data-wb-area="properties" aria-pressed="false">Properties</button>
+      </div>
+      <div class="wb-body" data-area="library">
+        <section class="wb-region wb-library" data-wb-region="library" aria-labelledby="wbLibraryHeading">
+          <h3 id="wbLibraryHeading">Component library</h3>
+          <p class="wb-empty">Empty. The searchable library and its categories are planned for a later phase.</p>
+        </section>
+        <section class="wb-region wb-workspace" data-wb-region="workspace" aria-labelledby="wbWorkspaceHeading">
+          <h3 id="wbWorkspaceHeading">Work area</h3>
+          <p class="wb-empty">Empty. Placing components and building circuits are planned and not available yet.</p>
+          <p class="wb-note">Your machine is unchanged while this screen is open: Main Power, battery charge, any connected load and the camera view are kept. Load Lab is still in Controls → Load Lab for now.</p>
+        </section>
+        <section class="wb-region wb-properties" data-wb-region="properties" aria-labelledby="wbPropertiesHeading">
+          <h3 id="wbPropertiesHeading">Properties</h3>
+          <p class="wb-empty">Nothing selected. Details and settings for a chosen component will appear here once components exist.</p>
+        </section>
+      </div>
     </div>
     <noscript><p style="position:fixed;inset:auto 16px 16px 16px;z-index:99;padding:14px;border:1px solid #ffc36b;border-radius:10px;background:#0f1722;color:#f2f6fa;font:14px/1.5 Inter,system-ui,sans-serif">Volta Lab needs JavaScript and WebGL to run the 3D simulator. The <a href="/learn/" style="color:#60c7f2">Learning Hub</a> explains the electronics without it.</p></noscript>
     <div id="srStatus" class="sr-only" role="status" aria-live="polite"></div>

@@ -1143,6 +1143,7 @@ $('motionSetting').textContent = `Follows your system “reduce motion” settin
 // Keyboard shortcuts: Space power, arrows voltage, T connect tips, S separate,
 // X emergency power-off, M switch AC/DC, R reset camera, P panel, ? help.
 window.addEventListener('keydown', (event) => {
+  if (document.body.classList.contains('workbench-open')) return; // the Workbench owns the keyboard while it is open (see workbench-ui.ts)
   const target = event.target as HTMLElement;
   if (target.matches('input,textarea,button,select') && (event.key === ' ' || event.key.startsWith('Arrow'))) return;
   if (event.code === 'Space') { event.preventDefault(); setPower(!isOn); }

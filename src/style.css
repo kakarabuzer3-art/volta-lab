@@ -414,3 +414,41 @@ kbd { display: inline-block; min-width: 24px; padding: 2px 7px; border-radius: 6
 .ll-na { color: var(--text-secondary); font-family: var(--font-ui); font-style: italic; }
 .ll-reasons { margin: 10px 0 0; padding-left: 18px; font-size: var(--fs-small); line-height: 1.5; color: #e8d3b1; }
 .ll-roadmap summary { min-height: var(--target); display: flex; align-items: center; cursor: pointer; font: 600 var(--fs-body) var(--font-ui); color: var(--text-primary); }
+
+/* ------------------------------------------------------------ Component Workbench (Phase 1A shell)
+   Separate full-screen workspace opened from a top-left button. Left library | centre work area | right properties; one area at a time
+   on narrow screens. Contains no components yet, only honest empty states. */
+.workbench-entry { position: absolute; top: 0; left: 0; z-index: 30; padding: max(10px, env(safe-area-inset-top)) 0 0 max(12px, env(safe-area-inset-left)); pointer-events: none; }
+.workbench-entry .tool-btn { pointer-events: auto; }
+.workbench { position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; background: var(--bg); color: var(--text-primary); }
+.workbench[hidden] { display: none; }
+.wb-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 12px max(16px, env(safe-area-inset-left)); border-bottom: 1px solid var(--border); background: var(--surface); }
+.wb-head-text { min-width: 0; }
+.wb-head h2 { margin: 0; font: 700 var(--fs-h2) var(--font-ui); }
+.wb-head h2:focus { outline: none; }
+.wb-head p { margin: 4px 0 0; font-size: var(--fs-small); line-height: 1.45; color: var(--text-secondary); max-width: 70ch; }
+.wb-switch { display: none; gap: 6px; padding: 8px max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left)); border-bottom: 1px solid var(--border); background: var(--surface); }
+.wb-switch-btn { flex: 1; min-height: var(--target); border-radius: var(--radius-sm); border: 1px solid var(--border-control); background: transparent; color: var(--text-secondary); font: 600 var(--fs-body) var(--font-ui); cursor: pointer; }
+.wb-switch-btn[aria-pressed='true'] { background: var(--surface-raised); color: var(--text-primary); border-color: var(--primary); }
+.wb-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(240px, 300px) minmax(0, 1fr) minmax(260px, 340px); }
+.wb-region { min-width: 0; min-height: 0; overflow-y: auto; padding: 16px; }
+.wb-region + .wb-region { border-left: 1px solid var(--border); }
+.wb-region h3 { margin: 0 0 8px; font: 700 var(--fs-h3) var(--font-ui); }
+.wb-library, .wb-properties { background: var(--surface); }
+.wb-empty { margin: 0 0 12px; padding: 14px; border: 1px dashed var(--border-control); border-radius: var(--radius-sm); font-size: var(--fs-body); line-height: 1.5; color: var(--text-secondary); }
+.wb-note { margin: 0; font-size: var(--fs-small); line-height: 1.5; color: var(--text-tertiary); max-width: 62ch; }
+@media (max-width: 900px) {
+  .wb-switch { display: flex; }
+  .wb-body { display: block; overflow-y: auto; }
+  .wb-region { display: none; height: 100%; }
+  .wb-region + .wb-region { border-left: 0; }
+  .wb-body[data-area='library'] [data-wb-region='library'], .wb-body[data-area='workspace'] [data-wb-region='workspace'], .wb-body[data-area='properties'] [data-wb-region='properties'] { display: block; }
+  .wb-head p { display: none; }
+}
+@media (max-width: 700px) { .workbench-entry { padding-left: max(8px, env(safe-area-inset-left)); } }
+/* Below 360 px the three right-hand buttons use almost the whole row, so the Workbench button drops to its own row at the left (still top-left); the Controls panel (z-index 20) covers it while open. */
+@media (max-width: 359px) { .workbench-entry { top: 54px; z-index: 19; } }
+@media (max-width: 420px) {
+  .workbench-btn .tool-text { display: none; } /* icon only so the left button never meets the three right-hand buttons; accessible name stays "Component Workbench" */
+  .workbench-btn { width: 44px; padding: 0; }
+}
