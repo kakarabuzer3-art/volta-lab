@@ -159,7 +159,7 @@ separately (< 1 % of input) and shrinks with the step. The averaged converter ha
 neglected storage is at most ≈ 41 J + 0.011 J (≈ 0.011 Wh), once, when the set-point changes (quantified in `ledger.test.ts`).
 When the battery runs out inside a step, only the charge that was left is delivered (output and ledger are scaled by the active fraction).
 
-### Load Lab V1 (Controls → Load Lab): what is connected to the output
+### Load Lab V1 (now in the Component Workbench since Phase 1B): what is connected to the output
 The output has three **mutually exclusive** connection states in the engine: `open` (nothing connected, 0 A), `short` (the lead tips touch: a fault test) and
 `load` (one validated modelled load across the output). `ConnectionCoordinator` (`src/sim/loadlab.ts`) is the single owner of that state. Touching the
 physical lead tips is only an *input* to it: while a load is connected, touching the tips (button, T key, click-click, dragging) is refused with an explanation

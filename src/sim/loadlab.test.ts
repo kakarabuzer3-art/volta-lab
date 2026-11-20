@@ -181,3 +181,26 @@ test('AC ↔ DC switching with a load attached keeps the load, power, SOC and he
     prev = s;
   }
 });
+
+// ---- Phase 1B: beginner-readable metadata used by the Workbench (presentation only; no electrical behaviour changes)
+test('catalogue metadata for the Workbench: plain-language role, AC/DC support and a beginner-readable unit name for every field', () => {
+  for (const l of LOAD_CATALOGUE) {
+    assert.ok(l.role.length > 30, `${l.id} role`);
+    assert.match(l.inputSupport, /AC|DC/);
+    assert.ok(l.symbol.startsWith('<'), 'symbol markup');
+    for (const p of l.params) assert.ok(p.term.length > 3 && p.help.length > 10, `${l.id}.${p.key} term/help`);
+  }
+  const term = (id: LoadTypeId, key: string): string => (loadTypeSpec(id).params.find((p) => p.key === key) as { term: string }).term;
+  assert.match(term('resistor', 'ohms'), /ohms \(Ω\)/);
+  assert.match(term('inductor', 'henries'), /henries \(H\)/);
+  assert.match(term('capacitor', 'farads'), /farads \(F\).*µF.*one-millionth/);
+  assert.match(loadTypeSpec('rlc').summary, /RLC means resistor, inductor and capacitor/);
+  assert.equal(loadTypeSpec('dc-motor').inputSupport, 'DC only');
+});
+
+test('the lead-touch refusal message points at the Workbench now that Load Lab moved out of Controls', () => {
+  const c = new ConnectionCoordinator(); c.connectLoad(resistiveLoad(50), false);
+  const r = c.canTouchLeads();
+  assert.equal(r.ok, false);
+  assert.ok(!r.ok && /Workbench/.test(r.reason) && !/Controls → Load Lab/.test(r.reason));
+});

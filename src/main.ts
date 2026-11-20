@@ -998,7 +998,7 @@ canvas.addEventListener('pointermove', (event) => {
         setTip(activeTip, dragPoint.x + grabOffset.x, dragPoint.y + grabOffset.y);
         if (coordinator.loadConnected && hasContact()) { // dragging into the other tip would imply a short: refuse while a load is connected
           setTip(activeTip, before.x, before.y);
-          if (performance.now() - lastBlockedHintAt > 2000) { lastBlockedHintAt = performance.now(); showWireHint('A load is connected. Disconnect it in Controls → Load Lab before touching the leads.', false); }
+          if (performance.now() - lastBlockedHintAt > 2000) { lastBlockedHintAt = performance.now(); showWireHint('A load is connected. Disconnect it in the Workbench (Load Lab) before touching the leads.', false); }
         }
       }
     }
@@ -1080,7 +1080,7 @@ const stageEl = document.querySelector('.stage') as HTMLElement;
 const panelToggle = $('panelToggle') as HTMLButtonElement;
 const controlPanel = $('controlPanel');
 controlPanel.tabIndex = -1; // focusable by script only
-const TAB_IDS = ['controls', 'loadlab', 'settings', 'help', 'learn', 'safety'] as const;
+const TAB_IDS = ['controls', 'settings', 'help', 'learn', 'safety'] as const;
 type TabId = (typeof TAB_IDS)[number];
 const tabButtons = TAB_IDS.map((id) => $(`tab-${id}`) as HTMLButtonElement);
 const tabPanes = TAB_IDS.map((id) => $(`pane-${id}`));
@@ -1121,7 +1121,7 @@ function setPanel(open: boolean, tab?: TabId) {
 panelToggle.addEventListener('click', () => setPanel(!isPanelOpen()));
 $('panelClose').addEventListener('click', () => setPanel(false));
 function openHelp() { setPanel(true, 'help'); }
-// Load Lab (Controls → Load Lab): collects parameters, builds a typed Load through the existing factories and asks the coordinator to
+// Load Lab (now inside the Component Workbench, see index.html #workbench): collects parameters, builds a typed Load through the existing factories and asks the coordinator to
 // connect it. Results are read from the engine snapshot only.
 const loadLab = initLoadLab({ coordinator, leadsTouching: hasContact, announce, forceSync: () => { lastSyncKey = ''; } });
 $('resetCameraBtn').addEventListener('click', () => { resetCamera(); announce('Camera view reset.'); });

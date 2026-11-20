@@ -21,6 +21,8 @@ export interface FieldSpec {
   label: string;
   symbol: string;
   help: string;
+  /** Beginner-readable unit name, e.g. “ohms (Ω)”, shown beside the field. */
+  term: string;
   units: readonly UnitOption[];
   /** Valid range in canonical SI, inclusive. `min` 0 means zero is allowed. */
   min: number;
@@ -32,6 +34,8 @@ export interface LoadTypeSpec {
   name: string;
   category: LoadCategory;
   summary: string;
+  /** What this part does in an electrical circuit, in plain words. */
+  role: string;
   inputSupport: string;
   acBehaviour: string;
   dcBehaviour: string;
@@ -49,36 +53,38 @@ const FARAD: readonly UnitOption[] = [{ label: 'µF', factor: 1e-6 }, { label: '
 const one = (label: string): readonly UnitOption[] => [{ label, factor: 1 }];
 
 const R_WIRE = { min: 1e-3, max: 1e9 };
-const field = (key: string, label: string, symbol: string, help: string, units: readonly UnitOption[], range: { min: number; max: number }, optional = false): FieldSpec =>
-  ({ key, label, symbol, help, units, min: range.min, max: range.max, optional });
+const field = (key: string, label: string, symbol: string, help: string, term: string, units: readonly UnitOption[], range: { min: number; max: number }, optional = false): FieldSpec =>
+  ({ key, label, symbol, help, term, units, min: range.min, max: range.max, optional });
 
 /** Optional ratings shared by every load. Left blank = unspecified (null): the model then makes no rating check. */
 export const OPTIONAL_RATINGS: readonly FieldSpec[] = [
-  field('ratedCurrentA', 'Rated current (optional)', 'I rated', 'If you enter it, the load is flagged “overloaded” when it draws more than this. Leave blank for no check.', one('A'), { min: 1e-6, max: 1e6 }, true),
-  field('ratedPowerW', 'Rated power (optional)', 'P rated', 'If you enter it, the load is flagged “overloaded” when its real power is above this. Leave blank for no check.', one('W'), { min: 1e-6, max: 1e9 }, true),
+  field('ratedCurrentA', 'Rated current (optional)', 'I rated', 'If you enter it, the load is flagged “overloaded” when it draws more than this. Leave blank for no check.', 'amperes (A), the unit of current', one('A'), { min: 1e-6, max: 1e6 }, true),
+  field('ratedPowerW', 'Rated power (optional)', 'P rated', 'If you enter it, the load is flagged “overloaded” when its real power is above this. Leave blank for no check.', 'watts (W), the unit of power', one('W'), { min: 1e-6, max: 1e9 }, true),
 ];
 
 export const LOAD_CATALOGUE: readonly LoadTypeSpec[] = [
   {
     id: 'resistor', name: 'Resistor', category: 'Basic electrical loads',
     summary: 'Turns electrical energy into heat. Current follows Ohm’s law, I = V / R.',
+    role: 'Limits the current and turns electrical energy into heat. A heater element is a resistor, and so is the simplest possible load.',
     inputSupport: 'AC or DC', symbol: '<path d="M2 12h12l3-8 6 16 6-16 6 16 6-16 3 8h18" />',
     acBehaviour: 'Current is in phase with voltage, so power factor is 1. Real power = V × I.',
     dcBehaviour: 'Steady current I = V / R, power P = V × I.',
     limitation: 'Ideal resistance only: no temperature coefficient, no inductance of the wire.',
-    params: [field('ohms', 'Resistance', 'R', 'Larger resistance means less current for the same voltage.', OHM, R_WIRE), ...OPTIONAL_RATINGS],
+    params: [field('ohms', 'Resistance', 'R', 'Larger resistance means less current for the same voltage.', 'ohms (Ω), the unit of resistance', OHM, R_WIRE), ...OPTIONAL_RATINGS],
     preset: { ohms: '50' },
   },
   {
     id: 'inductor', name: 'Inductor (coil)', category: 'Basic electrical loads',
-    summary: 'A coil: winding resistance in series with inductance.',
+    summary: 'A coil of wire. Modelled as its winding resistance in series with its inductance.',
+    role: 'Stores energy in a magnetic field and resists changes in current. Coils like this are found in chokes, filters, relays and motor windings.',
     inputSupport: 'AC or DC', symbol: '<path d="M2 12h8c0-9 10-9 10 0c0-9 10-9 10 0c0-9 10-9 10 0h2m0 0h20" />',
     acBehaviour: 'Reactance XL = 2πfL limits current and makes it lag the voltage (power factor below 1).',
     dcBehaviour: 'Once settled, only the winding resistance limits current: I = V / R.',
     limitation: 'Steady-state only: no switching transients or magnetic saturation.',
     params: [
-      field('ohms', 'Winding resistance', 'R', 'The resistance of the wire in the coil.', OHM, R_WIRE),
-      field('henries', 'Inductance', 'L', 'Larger inductance opposes AC current more.', HENRY, { min: 1e-9, max: 1e3 }),
+      field('ohms', 'Winding resistance', 'R', 'The resistance of the wire in the coil.', 'ohms (Ω), the unit of resistance', OHM, R_WIRE),
+      field('henries', 'Inductance', 'L', 'Larger inductance opposes AC current more.', 'henries (H), the unit of inductance', HENRY, { min: 1e-9, max: 1e3 }),
       ...OPTIONAL_RATINGS,
     ],
     preset: { ohms: '20', henries: '0.1' },
@@ -86,44 +92,47 @@ export const LOAD_CATALOGUE: readonly LoadTypeSpec[] = [
   {
     id: 'capacitor', name: 'Capacitor (in series)', category: 'Basic electrical loads',
     summary: 'Stores energy in an electric field. Connected in series across the output.',
+    role: 'Passes changing (AC) current but blocks steady (DC) current. Used for smoothing, filtering and coupling signals.',
     inputSupport: 'AC (blocks steady DC)', symbol: '<path d="M2 12h24M26 3v18M38 3v18M38 12h24" />',
     acBehaviour: 'Reactance XC = 1 / (2πfC); current leads the voltage. Larger C passes more current.',
     dcBehaviour: 'An ideal series capacitor blocks steady DC: the model shows 0 A.',
     limitation: 'Ideal capacitor plus a series resistance (ESR). No charging transient, no leakage, no voltage rating.',
     params: [
-      field('farads', 'Capacitance', 'C', 'Larger capacitance has lower reactance at 50 Hz.', FARAD, { min: 1e-12, max: 10 }),
-      field('esrOhm', 'Equivalent series resistance (ESR)', 'ESR', 'Small internal resistance of a real capacitor. Zero is allowed.', OHM, { min: 0, max: 1e6 }),
+      field('farads', 'Capacitance', 'C', 'Larger capacitance has lower reactance at 50 Hz.', 'farads (F); 1 µF (microfarad) is one-millionth of a farad', FARAD, { min: 1e-12, max: 10 }),
+      field('esrOhm', 'Equivalent series resistance (ESR)', 'ESR', 'Small internal resistance of a real capacitor. Zero is allowed.', 'ohms (Ω), the unit of resistance', OHM, { min: 0, max: 1e6 }),
       ...OPTIONAL_RATINGS,
     ],
     preset: { farads: '100', esrOhm: '0.1' },
   },
   {
     id: 'rlc', name: 'Series RLC circuit', category: 'Basic electrical loads',
-    summary: 'A resistor, inductor and capacitor in series: a frequency-dependent impedance.',
+    summary: 'RLC means resistor, inductor and capacitor. All three are connected in series, so the opposition to current depends on frequency.',
+    role: 'Combines resistance (R), inductance (L) and capacitance (C). Its total opposition to AC (impedance, Z) changes with frequency, which is the basis of filters and tuned circuits.',
     inputSupport: 'AC (blocks steady DC)', symbol: '<path d="M2 12h6l2-6 4 12 4-12 2 6h4c0-8 8-8 8 0c0-8 8-8 8 0h2M44 3v18M52 3v18M52 12h10" />',
     acBehaviour: 'Z = √(R² + (XL − XC)²). The model reports RMS current, real, reactive and apparent power and power factor.',
     dcBehaviour: 'The series capacitor blocks steady DC: the model shows 0 A.',
     limitation: 'Steady-state phasor model at the fixed 50 Hz source. No transients or resonance sweep.',
     params: [
-      field('ohms', 'Resistance', 'R', 'Sets the real power lost as heat.', OHM, R_WIRE),
-      field('henries', 'Inductance', 'L', 'Adds inductive reactance XL.', HENRY, { min: 1e-9, max: 1e3 }),
-      field('farads', 'Capacitance', 'C', 'Adds capacitive reactance XC.', FARAD, { min: 1e-12, max: 10 }),
+      field('ohms', 'Resistance', 'R', 'Sets the real power lost as heat.', 'ohms (Ω), the unit of resistance', OHM, R_WIRE),
+      field('henries', 'Inductance', 'L', 'Adds inductive reactance XL.', 'henries (H), the unit of inductance', HENRY, { min: 1e-9, max: 1e3 }),
+      field('farads', 'Capacitance', 'C', 'Adds capacitive reactance XC.', 'farads (F); 1 µF (microfarad) is one-millionth of a farad', FARAD, { min: 1e-12, max: 10 }),
       ...OPTIONAL_RATINGS,
     ],
     preset: { ohms: '20', henries: '0.1', farads: '100' },
   },
   {
     id: 'dc-motor', name: 'DC motor', category: 'Electromechanical loads',
-    summary: 'Winding resistance plus back-EMF. The model solves the steady-state running point.',
+    summary: 'Turns electrical energy into rotation. Modelled as winding resistance plus back-EMF, solved at its steady running point.',
+    role: 'Converts electrical energy into mechanical turning force. While it spins it generates a back-EMF that opposes the supply, so the running current is lower than the stall current.',
     inputSupport: 'DC only', symbol: '<path d="M2 12h14M48 12h14" /><circle cx="32" cy="12" r="11" /><path d="M26 17v-10l6 6 6-6v10" />',
     acBehaviour: 'Rated for DC only. AC input is flagged as unsupported by the model.',
     dcBehaviour: 'Steady state: V = Ra·I + Ke·ω and Kt·I = load torque + b·ω. A stalled motor draws V / Ra.',
     limitation: 'Steady-state equivalent only: no rotor inertia, start-up, acceleration or mechanical transient.',
     params: [
-      field('rArmOhm', 'Armature resistance', 'Ra', 'Winding resistance. Sets the stall current V / Ra.', OHM, R_WIRE),
-      field('kVsPerRad', 'Motor constant', 'K', 'Back-EMF constant (V·s/rad), numerically equal to the torque constant (N·m/A).', one('V·s/rad'), { min: 1e-3, max: 1e3 }),
-      field('loadTorqueNm', 'Load torque', 'T', 'Mechanical torque the motor must supply. Zero is allowed.', one('N·m'), { min: 0, max: 1e4 }),
-      field('viscousNmsPerRad', 'Viscous coefficient', 'b', 'Friction proportional to speed. Zero is allowed.', one('N·m·s/rad'), { min: 0, max: 1e3 }),
+      field('rArmOhm', 'Armature resistance', 'Ra', 'Winding resistance of the armature. Sets the stall current V / Ra.', 'ohms (Ω), the unit of resistance', OHM, R_WIRE),
+      field('kVsPerRad', 'Motor constant', 'K', 'Back-EMF constant (V·s/rad), numerically equal to the torque constant (N·m/A).', 'volt-seconds per radian (V·s/rad)', one('V·s/rad'), { min: 1e-3, max: 1e3 }),
+      field('loadTorqueNm', 'Load torque', 'T', 'Mechanical torque the motor must supply. Zero is allowed.', 'newton-metres (N·m), a turning force', one('N·m'), { min: 0, max: 1e4 }),
+      field('viscousNmsPerRad', 'Viscous coefficient', 'b', 'Friction proportional to speed. Zero is allowed.', 'newton-metre-seconds per radian (N·m·s/rad)', one('N·m·s/rad'), { min: 0, max: 1e3 }),
       ...OPTIONAL_RATINGS,
     ],
     preset: { rArmOhm: '2', kVsPerRad: '0.5', loadTorqueNm: '0.2', viscousNmsPerRad: '0.001' },
@@ -264,7 +273,7 @@ export class ConnectionCoordinator {
   }
   /** May the physical leads be brought together now? Not while a load is connected. */
   canTouchLeads(): { ok: true } | { ok: false; reason: string } {
-    return this.load ? { ok: false, reason: 'A load is connected. Disconnect it in Controls → Load Lab before testing a short circuit.' } : { ok: true };
+    return this.load ? { ok: false, reason: 'A load is connected. Disconnect it in the Workbench (Load Lab) before testing a short circuit.' } : { ok: true };
   }
   resolve(leadsTouching: boolean): Resolved {
     if (this.loadConn) return { connection: this.loadConn, kind: 'load', conflict: leadsTouching };

@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { LOAD_CATALOGUE } from './sim/index.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (rel: string) => readFileSync(join(ROOT, rel), 'utf8');
@@ -226,21 +227,62 @@ test('workbench: modal dialog with left library, centre work area and right prop
   const order = ['library', 'workspace', 'properties'].map((r) => wb.indexOf(`data-wb-region="${r}"`));
   assert.ok(order.every((i) => i > 0) && order[0] < order[1] && order[1] < order[2], 'regions in left, centre, right order');
   assert.equal((wb.match(/<section class="wb-region/g) ?? []).length, 3);
-  for (const h of ['Component library', 'Work area', 'Properties']) assert.ok(wb.includes(`>${h}</h3>`), h);
+  // Phase 1B: the left area is honestly titled as the five available load models, not as a complete component library.
+  for (const h of ['Available Load Models', 'Work area', 'Properties']) assert.ok(wb.includes(`>${h}</h3>`), h);
   assert.ok(wb.includes('id="wbClose"'));
-  // Phase 1A has no catalogue: no component names or fake controls inside the shell.
-  assert.ok(!/resistor|capacitor|inductor|mosfet|transistor|diode|<input|<select|<canvas/i.test(wb), 'no components or fake controls');
+  // Still no extra components, fake controls or 3D canvas in the static shell. (The five load cards, fields and buttons are rendered by
+  // loadlab-ui.ts from LOAD_CATALOGUE, so the static markup holds no <input>/<select>; Phase 1A also listed resistor/capacitor/inductor here,
+  // which the Phase 1B glossary legitimately names, so those three words are now checked by the catalogue test below instead of being banned.)
+  assert.ok(!/mosfet|transistor|diode|integrated circuit|<input|<select|<canvas/i.test(wb), 'no extra components or fake controls');
+  assert.ok(wb.includes('not the complete electronics component library'), 'the library says it is not the complete library');
   // #app must close before the dialog so that making #app inert cannot make the dialog inert, and it must be in <body>, not <head>.
   const between = html.slice(html.indexOf('</main>') + '</main>'.length, html.indexOf('<div id="workbench"')).replace(/\s+/g, ' ').trim();
   assert.equal(between, '</div>', 'dialog follows the closing of #app directly');
   assert.ok(html.indexOf('<div id="workbench"') > html.indexOf('<body>'));
 });
 
-test('workbench: Load Lab is still in the Control Room for now (moves in Phase 1B), and the shell is wired in entry.ts', () => {
+test('workbench (Phase 1B): Load Lab is mounted in the Workbench, gone from the Control Room, and the shell is wired in entry.ts', () => {
   const html = read('index.html');
   const wb = /<div id="workbench"[\s\S]*?\n    <\/div>\n/.exec(html)?.[0] ?? '';
-  assert.ok(html.includes('id="pane-loadlab"') && html.includes('id="tab-loadlab"'));
-  assert.ok(!wb.includes('pane-loadlab') && !wb.includes('llLibrary'));
+  const panel = /<aside id="controlPanel"[\s\S]*?<\/aside>/.exec(html)?.[0] ?? '';
+  assert.ok(panel.length > 500);
+  // Control Room: no Load Lab tab, pane, roadmap or any Load Lab host.
+  assert.ok(!/tab-loadlab|pane-loadlab|data-tab="loadlab"|Load Lab|ll-roadmap|id="ll[A-Z]/.test(panel), 'Control Room holds no Load Lab');
+  assert.ok(!html.includes('id="pane-loadlab"') && !html.includes('id="tab-loadlab"'));
+  assert.equal((panel.match(/role="tab"/g) ?? []).length, 5, 'five Control Room tabs remain: Controls, Settings, Help, Learning Hub, Limitations & Safety');
+  // Workbench: every host the Load Lab UI needs lives inside it, in the right area.
+  const area = (r: string) => new RegExp(`data-wb-region="${r}"[\\s\\S]*?</section>`).exec(wb)?.[0] ?? '';
+  for (const id of ['llLibrary']) assert.ok(area('library').includes(`id="${id}"`), id);
+  for (const id of ['llWork', 'llLive', 'llStatus', 'llResults', 'llStatusPill']) assert.ok(area('workspace').includes(`id="${id}"`), id);
+  for (const id of ['llForm', 'llConnect']) assert.ok(area('properties').includes(`id="${id}"`), id);
+  assert.ok(area('library').includes('class="ll-roadmap"') && /planned, not available yet/i.test(area('library')));
   assert.match(read('src/entry.ts'), /import '\.\/workbench-ui\.ts';/);
   assert.match(read('src/main.ts'), /classList\.contains\('workbench-open'\)\) return;/);
+  assert.match(read('src/main.ts'), /const TAB_IDS = \['controls', 'settings', 'help', 'learn', 'safety'\] as const;/);
+  assert.equal((read('src/main.ts').match(/initLoadLab\(/g) ?? []).length, 1, 'the Load Lab is initialised exactly once');
+});
+
+test('index.html: no duplicate element ids (the Load Lab hosts exist exactly once)', () => {
+  const html = read('index.html').replace(/<script[\s\S]*?<\/script>/g, '');
+  const ids = [...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]);
+  const dup = ids.filter((id, i) => ids.indexOf(id) !== i);
+  assert.deepEqual(dup, [], `duplicate ids: ${dup.join(', ')}`);
+});
+
+test('Load Lab UI source: beginner terminology, circuit-symbol labelling, no physics and a single mount', () => {
+  const ui = read('src/loadlab-ui.ts');
+  assert.ok(!/pane-loadlab/.test(ui), 'no dependency on the removed Control Room pane');
+  assert.ok(ui.includes('circuit symbol') && ui.includes('not a picture of the physical part'));
+  assert.ok(ui.includes('not manufacturer') || ui.includes('Not a real product'));
+  assert.ok(!/Math\.(sqrt|sin|cos|atan|PI)|three/.test(ui.replace(/\/\/.*$/gm, '')), 'the UI contains no equations and no three.js');
+  assert.ok(/describeLoadResults\(/.test(ui) && /coordinator\.connectLoad\(/.test(ui), 'results via describeLoadResults, connecting via the coordinator');
+});
+
+test('Workbench library source of truth: exactly the five existing load models, and the static shell names no other component', () => {
+  assert.deepEqual(LOAD_CATALOGUE.map((l) => l.id), ['resistor', 'inductor', 'capacitor', 'rlc', 'dc-motor']);
+  const html = read('index.html');
+  const wb = /<div id="workbench"[\s\S]*?\n    <\/div>\n/.exec(html)?.[0] ?? '';
+  // The static shell never lists load cards itself (loadlab-ui.ts renders them from LOAD_CATALOGUE), so no card markup is hand-written here.
+  assert.ok(!wb.includes('class="ll-card"'), 'cards come from the catalogue, not from hand-written markup');
+  assert.ok(!/mosfet|transistor|diode|op-amp|microcontroller|integrated circuit/i.test(wb), 'no other components named');
 });

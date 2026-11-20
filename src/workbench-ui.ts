@@ -1,5 +1,5 @@
-// Component Workbench shell (Phase 1A). Pure DOM: open / close, focus management and the narrow-screen area switcher.
-// It touches no physics, no Load Lab and no three.js. While open, the whole simulator page (#app) is made inert, so the machine keeps
+// Component Workbench shell. Pure DOM: open / close, focus management and the narrow-screen area switcher.
+// It touches no physics and no three.js; the Load Lab (loadlab-ui.ts) mounts into its three areas. While open, the whole simulator page (#app) is made inert, so the machine keeps
 // running underneath but cannot be reached by pointer, keyboard or assistive technology; closing restores everything unchanged.
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T | null => document.getElementById(id) as T | null;
 
@@ -40,6 +40,14 @@ function init(): void {
     for (const b of switchButtons) b.setAttribute('aria-pressed', String(b.dataset.wbArea === area));
   }
   for (const b of switchButtons) b.addEventListener('click', () => showArea(b.dataset.wbArea as string));
+
+  // On a narrow screen, choosing a load model moves straight on to its Properties (values + Connect). Wide screens already show all three areas.
+  document.addEventListener('workbench:model-chosen', () => {
+    if (!isOpen() || !window.matchMedia('(max-width: 900px)').matches) return;
+    showArea('properties');
+    $('wbPropertiesHeading')?.focus({ preventScroll: true }); // the chosen card is now hidden, so focus follows the learner to the next area
+    announce('Model chosen. Properties shown: set its values, then connect it.');
+  });
 
   document.addEventListener('keydown', (event) => {
     if (!isOpen()) return;
