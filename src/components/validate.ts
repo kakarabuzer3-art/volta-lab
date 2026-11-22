@@ -11,7 +11,7 @@ import type {
 import { aliasCollisions, aliasKeys, buildAliasIndex } from './alias.ts';
 import { checkEvidence } from './provenance.ts';
 import { COMPONENT_KINDS, COMPONENT_ROLES, CONNECTION_TYPES, KIND_CATEGORY_RULES, TERMINAL_POLARITIES, TERMINAL_ROLES } from './taxonomy.ts';
-import { DIMENSIONS, checkQuantity, checkRange, findUnit, isNonNegativeDimension } from './units.ts';
+import { DIMENSIONS, checkConditions, checkQuantity, checkRange, findUnit, isNonNegativeDimension } from './units.ts';
 
 export interface ValidationIssue {
   /** Stable machine-readable code, for example 'duplicate-id'. */
@@ -116,6 +116,7 @@ export function validateCatalogue(data: CatalogueData, options: ValidationOption
     if (!def) { add('invalid-spec-value', rec, `${f}.key`, `'${String(v.key)}' is not a specification of the definition`); }
     evidence(rec, `${f}.evidence`, v.evidence);
     if (v.evidence?.origin === 'illustrative-educational') add('invalid-spec-value', rec, `${f}.evidence`, 'a manufacturer part cannot carry illustrative values');
+    if (v.conditions) for (const m of checkConditions(v.conditions)) add('invalid-spec-value', rec, `${f}.conditions`, m);
     const val = v.value;
     if (def && val.type !== def.valueType) add('invalid-spec-value', rec, `${f}.value`, `value type '${val.type}' does not match the specification's '${def.valueType}'`);
     const within = (x: number | undefined, name: string): void => {
@@ -128,7 +129,7 @@ export function validateCatalogue(data: CatalogueData, options: ValidationOption
         break;
       case 'range':
         for (const m of checkRange(val.range, def?.dimension)) add('invalid-quantity', rec, `${f}.value`, m);
-        within(val.range.min, 'min'); within(val.range.max, 'max');
+        within(val.range.min, 'min'); within(val.range.typical, 'typical'); within(val.range.nominal, 'nominal'); within(val.range.max, 'max');
         break;
       case 'text': if (blank(val.text)) add('invalid-spec-value', rec, `${f}.value`, 'text must not be blank'); break;
       case 'enum': if (def?.options && !def.options.includes(val.value)) add('invalid-spec-value', rec, `${f}.value`, `'${val.value}' is not one of the allowed options`); break;

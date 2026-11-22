@@ -27,5 +27,8 @@ test('quantity keeps SI, canonical unit and display unit separate', () => {
 test('Load Lab motor units exist and agree', () => { assert.equal(findUnit('V·s/rad')?.dimension, 'motor-constant'); assert.equal(findUnit('N·m·s/rad')?.dimension, 'viscous-coefficient'); assert.equal(findUnit('N·m')?.dimension, 'torque'); });
 test('ranges and tolerance are validated', () => {
   const r = quantityRange('Ω', { min: 99, nominal: 100, max: 101, tolerance: relativeTolerance(0.01) }); assert.deepEqual(checkRange(r, 'resistance'), []);
-  assert.ok(checkRange({ ...r, min: { ...r.max! } , max: { ...r.min! } }, 'resistance').length > 0, 'min above max must be reported');
+  // A genuine numeric boundary: min above max is reported with its own message; equal bounds are allowed.
+  const bad = checkRange({ dimension: 'resistance', canonicalUnit: 'Ω', min: 101, max: 99 }, 'resistance');
+  assert.ok(bad.some((m) => /min \(101\) is greater than max \(99\)/.test(m)), JSON.stringify(bad));
+  assert.deepEqual(checkRange({ dimension: 'resistance', canonicalUnit: 'Ω', min: 100, max: 100 }, 'resistance'), []);
 });

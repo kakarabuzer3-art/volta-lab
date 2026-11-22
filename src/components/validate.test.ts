@@ -70,3 +70,51 @@ test('a part must reference a definition and carry manufacturer-datasheet eviden
 test('every issue names a record and a field', () => {
   for (const i of codes(data([def({ id: 'bad id', familyId: 'fam.nope', name: ' ' })]))) { assert.ok(i.record.length > 0 && i.field.length > 0 && i.code.length > 0 && i.message.length > 0); }
 });
+
+// ---- Phase 2B.1: manufacturer-part specification values (synthetic fixture; fictional maker, reserved .invalid domain)
+import type { SpecificationDefinition, SpecificationValue, SpecValue } from './types.ts';
+import type { OperatingConditions, Quantity } from './units.ts';
+
+const datasheetEv = { origin: 'manufacturer-datasheet' as const, review: { status: 'unverified' as const }, source: { kind: 'manufacturer-datasheet' as const, publisher: 'ExampleCo (fixture)', title: 'Fixture sheet', url: 'https://example.invalid/ds.pdf', page: '1', revision: 'A' } };
+const rSpec: SpecificationDefinition = { key: 'resistance', label: 'Resistance', plain: 'x', usage: 'characteristic', valueType: 'range', dimension: 'resistance', limits: { minSi: 1, maxSi: 1000 } };
+const specDef = def({ specifications: [rSpec] });
+const partWith = (value: SpecValue, conditions?: OperatingConditions): ManufacturerPart => ({
+  id: 'part.fixture-1', definitionId: 'def.test-resistor', manufacturer: 'ExampleCo (fixture)', partNumber: 'FIX-1',
+  specs: [{ key: 'resistance', value, ...(conditions ? { conditions } : {}), evidence: datasheetEv } satisfies SpecificationValue], evidence: datasheetEv,
+});
+const range = (r: { min?: number; typical?: number; nominal?: number; max?: number }): SpecValue => ({ type: 'range', range: { dimension: 'resistance', canonicalUnit: 'Ω', ...r } });
+const partIssues = (v: SpecValue, c?: OperatingConditions): ValidationIssue[] => codes(data([specDef], [partWith(v, c)]));
+const q = (dimension: Quantity['dimension'], si: number, canonicalUnit: string): Quantity => ({ dimension, si, canonicalUnit });
+const outside = (is: ValidationIssue[], what: string): boolean => is.some((i) => i.code === 'invalid-spec-value' && i.record.includes('part.fixture-1') && i.field === 'specs[0].value' && new RegExp(`${what} .* is outside`).test(i.message));
+
+test('range spec: in-bounds values of every kind are accepted', () => assert.deepEqual(partIssues(range({ min: 10, typical: 50, nominal: 100, max: 500 })), []));
+test('range spec: every provided value is checked against the limits', () => {
+  assert.ok(outside(partIssues(range({ min: 0.5, max: 10 })), 'min'));
+  assert.ok(outside(partIssues(range({ min: 10, max: 5000 })), 'max'));
+  assert.ok(outside(partIssues(range({ typical: 5000 })), 'typical'), 'typical alone, no min or max');
+  assert.ok(outside(partIssues(range({ nominal: 0.5 })), 'nominal'), 'nominal alone, no min or max');
+  assert.ok(outside(partIssues(range({ typical: 2000, nominal: 100 })), 'typical'));
+  assert.ok(outside(partIssues(range({ min: 10, typical: 20, nominal: 5000, max: 5000 })), 'nominal'));
+  assert.equal(outside(partIssues(range({ typical: 50 })), 'typical'), false);
+  assert.deepEqual(partIssues(range({ nominal: 1 })), [], 'the lower limit itself is allowed'); assert.deepEqual(partIssues(range({ typical: 1000 })), [], 'the upper limit itself is allowed');
+});
+test('top-level specification conditions: valid conditions pass', () => {
+  assert.deepEqual(partIssues(range({ nominal: 100 }), { temperature: q('temperature', 298.15, 'K'), frequency: q('frequency', 1000, 'Hz'), dcBias: q('voltage', 5, 'V'), note: 'fixture' }), []);
+  assert.deepEqual(partIssues(range({ nominal: 100 }), {}), []);
+});
+test('top-level specification conditions: wrong dimension, bad unit, non-finite and blank note are reported on specs[0].conditions', () => {
+  const field = (c: OperatingConditions) => partIssues(range({ nominal: 100 }), c).filter((i) => i.field === 'specs[0].conditions');
+  assert.ok(field({ temperature: q('voltage', 5, 'V') }).some((i) => /temperature/.test(i.message) && /expected temperature/.test(i.message)));
+  assert.ok(field({ frequency: q('resistance', 5, 'Ω') }).some((i) => /frequency/.test(i.message)));
+  assert.ok(field({ dcBias: q('current', 1, 'A') }).some((i) => /dcBias/.test(i.message) && /expected voltage/.test(i.message)));
+  assert.ok(field({ frequency: q('frequency', 1000, 'kHz') }).some((i) => /canonicalUnit/.test(i.message)), 'canonical unit must be Hz');
+  assert.ok(field({ temperature: q('temperature', NaN, 'K') }).some((i) => /finite/.test(i.message)));
+  assert.ok(field({ frequency: q('frequency', -5, 'Hz') }).some((i) => /negative/.test(i.message)));
+  assert.ok(field({ note: '  ' }).some((i) => /note/.test(i.message)));
+  for (const i of field({ dcBias: q('current', 1, 'A') })) assert.equal(i.code, 'invalid-spec-value');
+});
+test('conditions are validated for quantity-valued specifications too', () => {
+  const qSpec = def({ specifications: [{ ...rSpec, valueType: 'quantity' }] });
+  const part = partWith({ type: 'quantity', quantity: q('resistance', 100, 'Ω') }, { temperature: q('current', 1, 'A') });
+  assert.ok(codes(data([qSpec], [part])).some((i) => i.field === 'specs[0].conditions'));
+});

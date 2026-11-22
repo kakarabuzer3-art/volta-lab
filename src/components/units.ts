@@ -183,7 +183,8 @@ export function checkQuantity(q: Quantity, expected?: Dimension): string[] {
   return p;
 }
 
-function checkConditions(c: OperatingConditions): string[] {
+/** Integrity of operating conditions: temperature, frequency and DC bias must be quantities of the right dimension. Returns problems. */
+export function checkConditions(c: OperatingConditions): string[] {
   const p: string[] = [];
   const one = (name: string, q: Quantity | undefined, dim: Dimension): void => { if (q) for (const m of checkQuantity(q, dim)) p.push(`conditions.${name}: ${m}`); };
   one('temperature', c.temperature, 'temperature'); one('frequency', c.frequency, 'frequency'); one('dcBias', c.dcBias, 'voltage');
