@@ -474,3 +474,38 @@ kbd { display: inline-block; min-width: 24px; padding: 2px 7px; border-radius: 6
   .workbench-btn .tool-text { display: none; } /* icon only so the left button never meets the three right-hand buttons; accessible name stays "Component Workbench" */
   .workbench-btn { width: 44px; padding: 0; }
 }
+
+/* ---- Workbench library sections (Management & Control, Circuits & Components, Transformers) ---- */
+.lib-sections { display: grid; gap: 12px; margin-bottom: 18px; }
+.lib-section { border: 1px solid var(--border-control); border-radius: 10px; background: #0d141c; padding: 0 12px 12px; }
+.lib-section > summary { display: flex; align-items: center; gap: 10px; min-height: var(--target); cursor: pointer; list-style: none; }
+.lib-section > summary::-webkit-details-marker { display: none; }
+.lib-section-name { font: 700 var(--fs-body) var(--font-ui); color: var(--text-primary); }
+.lib-symbol { width: 56px; height: 22px; flex: none; fill: none; stroke: var(--cyan, #60c7f2); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.lib-symbol-lg { width: 44px; height: 22px; }
+.lib-section .wb-note { margin-bottom: 10px; }
+.lib-list, .lib-terms { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.lib-list li { display: grid; gap: 2px; font-size: var(--fs-small); line-height: 1.45; color: var(--text-secondary); }
+.lib-list b, .lib-family b { color: var(--text-primary); font-weight: 600; }
+.lib-status { display: inline-block; font: 600 var(--fs-meta) var(--font-ui); color: var(--text-tertiary); letter-spacing: 0.02em; }
+.lib-status.is-on { color: var(--success); }
+.lib-cat { border-top: 1px solid var(--border); }
+.lib-cat > summary { display: flex; justify-content: space-between; gap: 8px; align-items: center; min-height: var(--target); cursor: pointer; font-size: var(--fs-small); color: var(--text-primary); }
+.lib-cat-name { font-weight: 600; }
+.lib-count { font: 500 var(--fs-meta) var(--mono); color: var(--text-tertiary); }
+.lib-cat-sum, .lib-empty { margin: 0 0 8px; font-size: var(--fs-small); line-height: 1.45; color: var(--text-secondary); }
+.lib-family { margin: 0 0 8px; font-size: var(--fs-small); color: var(--text-secondary); }
+.lib-family ul { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 3px; }
+.lib-items { display: grid; gap: 8px; }
+.lib-item { border: 1px solid var(--border-control); border-radius: 10px; background: #0a1118; padding: 0 12px; }
+.lib-item > summary { display: grid; gap: 4px; padding: 10px 0; min-height: var(--target); cursor: pointer; list-style: none; }
+.lib-item > summary::-webkit-details-marker { display: none; }
+.lib-item-top { display: flex; align-items: center; gap: 10px; }
+.lib-item-name { font: 700 var(--fs-body) var(--font-ui); color: var(--text-primary); }
+.lib-item-body { padding-bottom: 12px; }
+.lib-sub { margin: 12px 0 6px; font: 700 var(--fs-small) var(--font-ui); color: var(--text-primary); }
+.lib-terms li { font-size: var(--fs-small); line-height: 1.45; color: var(--text-secondary); }
+.lib-terms code { font-family: var(--mono); color: var(--text-primary); }
+.lib-role { color: var(--text-tertiary); font-size: var(--fs-meta); }
+.lib-evidence { margin: 10px 0 0; font-size: var(--fs-meta); line-height: 1.45; color: var(--text-tertiary); }
+.lib-section > summary:focus-visible, .lib-cat > summary:focus-visible, .lib-item > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 6px; }

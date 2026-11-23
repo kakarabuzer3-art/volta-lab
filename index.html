@@ -221,7 +221,7 @@
       <div class="wb-head">
         <div class="wb-head-text">
           <h2 id="wbTitle" tabindex="-1">Component Workbench</h2>
-          <p>Choose one of five simulation load models, set its values, and connect it to the machine output. A wider component library is planned, but is not part of this version.</p>
+          <p>Browse the library sections, or choose one of five simulation load models, set its values and connect it to the machine output. Transformers are explained as reference entries and cannot be simulated yet.</p>
         </div>
         <button id="wbClose" class="tool-btn wb-close" type="button" aria-label="Close Workbench and return to the machine">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
@@ -235,6 +235,7 @@
       </div>
       <div class="wb-body" data-area="library">
         <section class="wb-region wb-library" data-wb-region="library" aria-labelledby="wbLibraryHeading">
+          <div id="libSections" class="lib-sections" aria-label="Library sections"></div>
           <h3 id="wbLibraryHeading" tabindex="-1">Available Load Models</h3>
           <p class="wb-note">Five models are available now. This is not the complete electronics component library. The small drawings are <b>circuit symbols</b>, the notation engineers use on schematic diagrams, not pictures of physical parts.</p>
           <div id="llLibrary" class="ll-library" role="radiogroup" aria-label="Available load models"><p class="wb-empty">Loading the load models…</p></div>

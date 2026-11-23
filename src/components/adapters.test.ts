@@ -75,7 +75,7 @@ test('aliases from the Load Lab names still resolve, uniquely', () => {
 });
 test('the adapter refuses to start if sim and metadata ids drift', () => { assert.doesNotThrow(() => new LegacyLoadAdapter()); });
 
-test('boundary: only adapters.ts imports the simulator; nothing outside src/components imports the library yet', () => {
+test('boundary: only adapters.ts imports the simulator; only the lazy library-ui.ts imports the library from outside src/components', () => {
   const dir = new URL('.', import.meta.url);
   const walk = (u: URL): URL[] => readdirSync(u, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(new URL(`${e.name}/`, u)) : [new URL(e.name, u)]);
   for (const f of walk(dir).filter((u) => /\.ts$/.test(u.pathname) && !/\.test\.ts$/.test(u.pathname))) {
@@ -84,10 +84,20 @@ test('boundary: only adapters.ts imports the simulator; nothing outside src/comp
   }
   const src = new URL('../', import.meta.url);
   for (const f of walk(src).filter((u) => /\.ts$/.test(u.pathname) && !u.pathname.includes('/components/'))) {
-    assert.equal(/from '\.\/components|from '\.\.\/components/.test(readFileSync(f, 'utf8')), false, `${f.pathname} imports the component library`);
+    const importsLibrary = /from '\.\/components|from '\.\.\/components/.test(readFileSync(f, 'utf8'));
+    assert.equal(importsLibrary, f.pathname.endsWith('/src/library-ui.ts'), `${f.pathname}: unexpected component-library import state`);
   }
 });
 test('no physics: library source contains no engine or equation code', () => {
   const src = readFileSync(new URL('./adapters.ts', import.meta.url), 'utf8');
   assert.equal(/Math\.(sqrt|hypot|PI)|new Engine|Engine\(/.test(src), false);
+});
+
+test('library-ui.ts is loaded lazily, never statically, and imports no simulator, machine or three.js code', () => {
+  const root = new URL('../../', import.meta.url);
+  const ui = readFileSync(new URL('src/library-ui.ts', root), 'utf8');
+  assert.equal(/^import .*from '(\.\/sim|\.\/main|\.\/loadlab-ui|three)/m.test(ui), false);
+  assert.equal(/components\/adapters/.test(ui), false, 'the UI must not pull in the adapter (and with it the simulator)');
+  for (const f of ['src/entry.ts', 'src/main.ts', 'src/workbench-ui.ts', 'src/loadlab-ui.ts']) assert.equal(/^import [^(]*['"]\.\/library-ui\.ts['"]/m.test(readFileSync(new URL(f, root), 'utf8')), false, `${f} must not import library-ui statically`);
+  assert.match(readFileSync(new URL('src/workbench-ui.ts', root), 'utf8'), /import\('\.\/library-ui\.ts'\)/);
 });

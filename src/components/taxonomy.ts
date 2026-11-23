@@ -65,10 +65,12 @@ export const KIND_CATEGORY_RULES: Readonly<Record<ComponentKind, readonly string
 
 export type TerminalRole =
   | 'terminal' | 'anode' | 'cathode' | 'gate' | 'drain' | 'source' | 'collector' | 'base' | 'emitter'
-  | 'positive' | 'negative' | 'input' | 'output' | 'common' | 'coil' | 'contact' | 'wiper' | 'ground' | 'phase' | 'neutral' | 'earth';
+  | 'positive' | 'negative' | 'input' | 'output' | 'common' | 'coil' | 'contact' | 'wiper' | 'ground' | 'phase' | 'neutral' | 'earth'
+  | 'primary' | 'secondary' | 'tap';
 export const TERMINAL_ROLES: readonly TerminalRole[] = [
   'terminal', 'anode', 'cathode', 'gate', 'drain', 'source', 'collector', 'base', 'emitter',
   'positive', 'negative', 'input', 'output', 'common', 'coil', 'contact', 'wiper', 'ground', 'phase', 'neutral', 'earth',
+  'primary', 'secondary', 'tap',
 ];
 
 /** How a terminal behaves electrically. Planned for a future circuit builder; nothing here connects anything. */

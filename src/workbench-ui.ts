@@ -1,5 +1,5 @@
 // Component Workbench shell. Pure DOM: open / close, focus management and the narrow-screen area switcher.
-// It touches no physics and no three.js; the Load Lab (loadlab-ui.ts) mounts into its three areas. While open, the whole simulator page (#app) is made inert, so the machine keeps
+// It touches no physics and no three.js; the Load Lab (loadlab-ui.ts) mounts into its three areas and the library sections (library-ui.ts) load on first open. While open, the whole simulator page (#app) is made inert, so the machine keeps
 // running underneath but cannot be reached by pointer, keyboard or assistive technology; closing restores everything unchanged.
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T | null => document.getElementById(id) as T | null;
 
@@ -13,8 +13,11 @@ function init(): void {
   const announce = (text: string): void => { const el = $('srStatus'); if (el) el.textContent = text; };
   const isOpen = (): boolean => !dialog.hidden;
 
+  let librarySectionsLoaded = false;
   function open(): void {
     if (isOpen()) return;
+    // The library sections load on first open as their own small chunk, so first paint and the 3D bundle are unaffected.
+    if (!librarySectionsLoaded) { librarySectionsLoaded = true; import('./library-ui.ts').catch((error: unknown) => console.error('Volta Lab: library sections failed to load', error)); }
     dialog!.hidden = false;
     (app as HTMLElement & { inert: boolean }).inert = true;
     document.body.classList.add('workbench-open');
