@@ -220,10 +220,19 @@ test('workbench: entry button is separate from the machine header, which keeps e
   assert.match(entry, /aria-label="Component Workbench"/);
 });
 
-test('workbench: modal dialog with left library, centre work area and right properties, outside #app, honest empty states', () => {
+test('workbench: non-modal left side panel with three sections; the Components section holds library, work area and properties; honest empty states', () => {
   const html = read('index.html');
-  const wb = /<div id="workbench"[\s\S]*?\n    <\/div>\n/.exec(html)?.[0] ?? '';
-  assert.match(wb, /role="dialog"[^>]*aria-modal="true"[^>]*aria-labelledby="wbTitle"[^>]*hidden/);
+  const wb = /<aside id="workbench"[\s\S]*?<\/aside>/.exec(html)?.[0] ?? '';
+  // Not modal: a labelled side panel (complementary landmark), closed by default; no dialog role, no aria-modal.
+  assert.match(wb, /^<aside id="workbench" class="workbench" aria-labelledby="wbTitle" hidden>/);
+  assert.ok(!/role="dialog"|aria-modal/.test(wb) && !html.includes('aria-haspopup="dialog"'), 'the Workbench is a side panel, not a dialog');
+  // Three sections as tabs, each controlling its own tabpanel: Components (all current data), Transformers, and a reserved third.
+  const tabs = [...wb.matchAll(/role="tab"[^>]*aria-controls="(wbpane-[a-z]+)"[^>]*data-wb-section="([a-z]+)"/g)].map((m) => `${m[2]}>${m[1]}`);
+  assert.deepEqual(tabs, ['components>wbpane-components', 'transformers>wbpane-transformers', 'third>wbpane-third']);
+  assert.equal((wb.match(/role="tabpanel"/g) ?? []).length, 3);
+  assert.ok(/id="wbpane-transformers"[^>]*hidden/.test(wb) && /id="wbpane-third"[^>]*hidden/.test(wb) && !/id="wbpane-components"[^>]*hidden/.test(wb), 'Components is the open section by default');
+  assert.ok(wb.includes('id="libTransformers"') && wb.indexOf('id="libTransformers"') > wb.indexOf('id="wbpane-transformers"'));
+  assert.ok(/has not been decided yet/.test(wb.slice(wb.indexOf('id="wbpane-third"'))), 'the third section is an honest placeholder');
   const order = ['library', 'workspace', 'properties'].map((r) => wb.indexOf(`data-wb-region="${r}"`));
   assert.ok(order.every((i) => i > 0) && order[0] < order[1] && order[1] < order[2], 'regions in left, centre, right order');
   assert.equal((wb.match(/<section class="wb-region/g) ?? []).length, 3);
@@ -235,15 +244,15 @@ test('workbench: modal dialog with left library, centre work area and right prop
   // which the Phase 1B glossary legitimately names, so those three words are now checked by the catalogue test below instead of being banned.)
   assert.ok(!/mosfet|transistor|diode|integrated circuit|<input|<select|<canvas/i.test(wb), 'no extra components or fake controls');
   assert.ok(wb.includes('not the complete electronics component library'), 'the library says it is not the complete library');
-  // #app must close before the dialog so that making #app inert cannot make the dialog inert, and it must be in <body>, not <head>.
-  const between = html.slice(html.indexOf('</main>') + '</main>'.length, html.indexOf('<div id="workbench"')).replace(/\s+/g, ' ').trim();
-  assert.equal(between, '</div>', 'dialog follows the closing of #app directly');
-  assert.ok(html.indexOf('<div id="workbench"') > html.indexOf('<body>'));
+  // The panel sits in <body>, after the machine page (#app), and is not inside the Control Room.
+  assert.ok(html.indexOf('<aside id="workbench"') > html.indexOf('<body>') && html.indexOf('<aside id="workbench"') > html.indexOf('</main>'));
+  assert.ok(!(/<aside id="controlPanel"[\s\S]*?<\/aside>/.exec(html)?.[0] ?? '').includes('id="workbench"'));
+  assert.ok(!html.slice(html.indexOf('<div id="app"'), html.indexOf('</main>')).includes('id="workbench"'));
 });
 
 test('workbench (Phase 1B): Load Lab is mounted in the Workbench, gone from the Control Room, and the shell is wired in entry.ts', () => {
   const html = read('index.html');
-  const wb = /<div id="workbench"[\s\S]*?\n    <\/div>\n/.exec(html)?.[0] ?? '';
+  const wb = /<aside id="workbench"[\s\S]*?<\/aside>/.exec(html)?.[0] ?? '';
   const panel = /<aside id="controlPanel"[\s\S]*?<\/aside>/.exec(html)?.[0] ?? '';
   assert.ok(panel.length > 500);
   // Control Room: no Load Lab tab, pane, roadmap or any Load Lab host.
@@ -257,7 +266,8 @@ test('workbench (Phase 1B): Load Lab is mounted in the Workbench, gone from the 
   for (const id of ['llForm', 'llConnect']) assert.ok(area('properties').includes(`id="${id}"`), id);
   assert.ok(area('library').includes('class="ll-roadmap"') && /planned, not available yet/i.test(area('library')));
   assert.match(read('src/entry.ts'), /import '\.\/workbench-ui\.ts';/);
-  assert.match(read('src/main.ts'), /classList\.contains\('workbench-open'\)\) return;/);
+  assert.match(read('src/main.ts'), /closest\?\.\('#workbench'\)\) return;/, 'keys typed inside the Workbench panel never act on the machine');
+  assert.ok(!/inert/.test(read('src/workbench-ui.ts').replace(/\/\/.*$/gm, '')), 'the machine is never made inert: the panel is not modal');
   assert.match(read('src/main.ts'), /const TAB_IDS = \['controls', 'settings', 'help', 'learn', 'safety'\] as const;/);
   assert.equal((read('src/main.ts').match(/initLoadLab\(/g) ?? []).length, 1, 'the Load Lab is initialised exactly once');
 });

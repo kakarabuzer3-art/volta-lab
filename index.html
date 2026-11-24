@@ -44,7 +44,7 @@
         </section>
 
         <div class="workbench-entry">
-          <button id="workbenchBtn" class="tool-btn workbench-btn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="workbench" aria-label="Component Workbench" title="Component Workbench">
+          <button id="workbenchBtn" class="tool-btn workbench-btn" type="button" aria-expanded="false" aria-controls="workbench" aria-label="Component Workbench" title="Component Workbench">
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5"/><path d="M10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4"/></svg>
             <span class="tool-text">Workbench</span>
           </button>
@@ -217,17 +217,21 @@
         </aside>
       </main>
     </div>
-    <div id="workbench" class="workbench" role="dialog" aria-modal="true" aria-labelledby="wbTitle" hidden>
+    <aside id="workbench" class="workbench" aria-labelledby="wbTitle" hidden>
       <div class="wb-head">
-        <div class="wb-head-text">
-          <h2 id="wbTitle" tabindex="-1">Component Workbench</h2>
-          <p>Browse the library sections, or choose one of five simulation load models, set its values and connect it to the machine output. Transformers are explained as reference entries and cannot be simulated yet.</p>
-        </div>
-        <button id="wbClose" class="tool-btn wb-close" type="button" aria-label="Close Workbench and return to the machine">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
-          <span class="tool-text">Machine</span>
+        <h2 id="wbTitle" tabindex="-1">Component Workbench</h2>
+        <button id="wbClose" class="tool-btn wb-close" type="button" aria-label="Close Workbench" title="Close Workbench (Esc)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
         </button>
       </div>
+      <div class="panel-head wb-tabs-head">
+        <div class="tabs" role="tablist" aria-label="Workbench sections">
+          <button id="wbtab-components" class="tab" type="button" role="tab" aria-selected="true" aria-controls="wbpane-components" data-wb-section="components">Components</button>
+          <button id="wbtab-transformers" class="tab" type="button" role="tab" aria-selected="false" aria-controls="wbpane-transformers" data-wb-section="transformers" tabindex="-1">Transformers</button>
+          <button id="wbtab-third" class="tab" type="button" role="tab" aria-selected="false" aria-controls="wbpane-third" data-wb-section="third" tabindex="-1">Section 3</button>
+        </div>
+      </div>
+      <section id="wbpane-components" class="wb-pane" role="tabpanel" aria-labelledby="wbtab-components">
       <div class="wb-switch" role="group" aria-label="Show Workbench area">
         <button type="button" class="wb-switch-btn" data-wb-area="library" aria-pressed="true">Library</button>
         <button type="button" class="wb-switch-btn" data-wb-area="workspace" aria-pressed="false">Work area</button>
@@ -289,7 +293,15 @@
           </details>
         </section>
       </div>
-    </div>
+      </section>
+      <section id="wbpane-transformers" class="wb-pane wb-pane-scroll" role="tabpanel" aria-labelledby="wbtab-transformers" hidden>
+        <div id="libTransformers" class="lib-transformers"><p class="wb-empty">Loading the transformer entries…</p></div>
+      </section>
+      <section id="wbpane-third" class="wb-pane wb-pane-scroll" role="tabpanel" aria-labelledby="wbtab-third" hidden>
+        <h3 class="wb-pane-title">Section 3</h3>
+        <p class="wb-empty">This section has not been decided yet. The space is reserved, and nothing is available here yet.</p>
+      </section>
+    </aside>
     <noscript><p style="position:fixed;inset:auto 16px 16px 16px;z-index:99;padding:14px;border:1px solid #ffc36b;border-radius:10px;background:#0f1722;color:#f2f6fa;font:14px/1.5 Inter,system-ui,sans-serif">Volta Lab needs JavaScript and WebGL to run the 3D simulator. The <a href="/learn/" style="color:#60c7f2">Learning Hub</a> explains the electronics without it.</p></noscript>
     <div id="srStatus" class="sr-only" role="status" aria-live="polite"></div>
     <script type="module" src="/src/entry.ts"></script>

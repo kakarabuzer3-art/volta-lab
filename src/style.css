@@ -420,31 +420,36 @@ kbd { display: inline-block; min-width: 24px; padding: 2px 7px; border-radius: 6
    on narrow screens. Contains no components yet, only honest empty states. */
 .workbench-entry { position: absolute; top: 0; left: 0; z-index: 30; padding: max(10px, env(safe-area-inset-top)) 0 0 max(12px, env(safe-area-inset-left)); pointer-events: none; }
 .workbench-entry .tool-btn { pointer-events: auto; }
-.workbench { position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; background: var(--bg); color: var(--text-primary); }
+/* Workbench: a left-hand side panel, the mirror of the Controls panel (which is on the right). Not modal: the machine stays visible and usable beside it. */
+.workbench {
+  position: fixed; z-index: 25; top: var(--topbar-h); left: 12px; bottom: 12px; width: 440px; max-width: calc(100vw - 24px);
+  display: flex; flex-direction: column; min-height: 0; color: var(--text-primary);
+  border: 1px solid var(--line); border-radius: var(--radius); background: linear-gradient(160deg, #121b27, #0c121a); box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5); overflow: hidden;
+}
 .workbench[hidden] { display: none; }
-.wb-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 12px max(16px, env(safe-area-inset-left)); border-bottom: 1px solid var(--border); background: var(--surface); }
-.wb-head-text { min-width: 0; }
-.wb-head h2 { margin: 0; font: 700 var(--fs-h2) var(--font-ui); }
+.wb-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 6px 6px 14px; border-bottom: 1px solid var(--line); flex: none; }
+.wb-head h2 { margin: 0; font: 700 var(--fs-h3) var(--font-ui); }
 .wb-head h2:focus { outline: none; }
-.wb-head p { margin: 4px 0 0; font-size: var(--fs-small); line-height: 1.45; color: var(--text-secondary); max-width: 70ch; }
-.wb-switch { display: none; gap: 6px; padding: 8px max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left)); border-bottom: 1px solid var(--border); background: var(--surface); }
-.wb-switch-btn { flex: 1; min-height: var(--target); border-radius: var(--radius-sm); border: 1px solid var(--border-control); background: transparent; color: var(--text-secondary); font: 600 var(--fs-body) var(--font-ui); cursor: pointer; }
+.wb-close { width: 44px; padding: 0; }
+.wb-close svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; }
+.wb-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.wb-pane[hidden] { display: none; }
+.wb-pane-scroll { overflow-y: auto; padding: 12px; display: block; }
+.wb-pane-title { margin: 0 0 8px; font: 700 var(--fs-h3) var(--font-ui); }
+.wb-switch { display: flex; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--line); flex: none; }
+.wb-switch-btn { flex: 1; min-height: var(--target); border-radius: var(--radius-sm); border: 1px solid var(--border-control); background: transparent; color: var(--text-secondary); font: 600 var(--fs-small) var(--font-ui); cursor: pointer; }
 .wb-switch-btn[aria-pressed='true'] { background: var(--surface-raised); color: var(--text-primary); border-color: var(--primary); }
-.wb-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(240px, 300px) minmax(0, 1fr) minmax(260px, 340px); }
-.wb-region { min-width: 0; min-height: 0; overflow-y: auto; padding: 16px; }
-.wb-region + .wb-region { border-left: 1px solid var(--border); }
+.wb-body { flex: 1; min-height: 0; display: block; overflow-y: auto; overscroll-behavior: contain; }
+.wb-region { display: none; min-width: 0; padding: 12px; }
 .wb-region h3 { margin: 0 0 8px; font: 700 var(--fs-h3) var(--font-ui); }
-.wb-library, .wb-properties { background: var(--surface); }
+.wb-body[data-area='library'] [data-wb-region='library'], .wb-body[data-area='workspace'] [data-wb-region='workspace'], .wb-body[data-area='properties'] [data-wb-region='properties'] { display: block; }
 .wb-empty { margin: 0 0 12px; padding: 14px; border: 1px dashed var(--border-control); border-radius: var(--radius-sm); font-size: var(--fs-body); line-height: 1.5; color: var(--text-secondary); }
 .wb-note { margin: 0; font-size: var(--fs-small); line-height: 1.5; color: var(--text-tertiary); max-width: 62ch; }
-@media (max-width: 900px) {
-  .wb-switch { display: flex; }
-  .wb-body { display: block; overflow-y: auto; }
-  .wb-region { display: none; height: 100%; }
-  .wb-region + .wb-region { border-left: 0; }
-  .wb-body[data-area='library'] [data-wb-region='library'], .wb-body[data-area='workspace'] [data-wb-region='workspace'], .wb-body[data-area='properties'] [data-wb-region='properties'] { display: block; }
-  .wb-head p { display: none; }
+/* Wide desktop: the Workbench docks beside the scene, like the Controls panel, so it never covers the machine. */
+@media (min-width: 1180px) {
+  .workbench-open .scene-section { left: 464px; }
 }
+@media (max-width: 700px) { .workbench { left: 8px; right: 8px; bottom: 8px; width: auto; max-width: none; } }
 @media (max-width: 700px) { .workbench-entry { padding-left: max(8px, env(safe-area-inset-left)); } }
 /* Load Lab inside the Workbench */
 .wb-region-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
@@ -509,3 +514,6 @@ kbd { display: inline-block; min-width: 24px; padding: 2px 7px; border-radius: 6
 .lib-role { color: var(--text-tertiary); font-size: var(--fs-meta); }
 .lib-evidence { margin: 10px 0 0; font-size: var(--fs-meta); line-height: 1.45; color: var(--text-tertiary); }
 .lib-section > summary:focus-visible, .lib-cat > summary:focus-visible, .lib-item > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 6px; }
+.lib-pane-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.lib-pane-head .wb-pane-title { margin: 0; }
+.lib-transformers .wb-note { margin-bottom: 12px; }

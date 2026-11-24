@@ -1,4 +1,4 @@
-// Workbench library sections (DOM only): "Management & Control", "Circuits & Components" and "Transformers". Rendered from the component library's data
+// Workbench library content (DOM only): "Management & Control" and "Circuits & Components" (inside the Components section) and the Transformers section. Rendered from the component library's data
 // (taxonomy, families, definitions); nothing here is typed by hand twice. It is loaded on demand the first time the Workbench opens and imports no simulator,
 // no three.js and no machine code, so the 3D bundle and first paint are unaffected. Every entry states honestly whether it is simulated; transformers are
 // catalogue entries only. No inputs, no fake controls.
@@ -72,23 +72,26 @@ function transformerCard(d: ComponentDefinition): string {
 }
 
 function transformersSection(transformers: readonly ComponentDefinition[]): string {
-  return `<details class="lib-section" open>
-    <summary><svg class="lib-symbol lib-symbol-lg" viewBox="0 0 64 32" aria-hidden="true" focusable="false"><path d="M22 4a4 4 0 0 1 0 8a4 4 0 0 1 0 8a4 4 0 0 1 0 8M42 4a4 4 0 0 0 0 8a4 4 0 0 0 0 8a4 4 0 0 0 0 8M30 2V30M34 2V30M22 4H8M22 28H8M42 4H56M42 28H56"/></svg><span class="lib-section-name">Transformers</span></summary>
-    <p class="wb-note">Five kinds of transformer, explained. These are reference entries: they cannot be connected or simulated yet. Voltage classes (low, medium, high, extra-high) have no numeric limits here because the boundaries differ between standards.</p>
-    <div class="lib-items">${transformers.map(transformerCard).join('')}</div>
-  </details>`;
+  return `<div class="lib-pane-head">
+    <svg class="lib-symbol lib-symbol-lg" viewBox="0 0 64 32" aria-hidden="true" focusable="false"><path d="M22 4a4 4 0 0 1 0 8a4 4 0 0 1 0 8a4 4 0 0 1 0 8M42 4a4 4 0 0 0 0 8a4 4 0 0 0 0 8a4 4 0 0 0 0 8M30 2V30M34 2V30M22 4H8M22 28H8M42 4H56M42 28H56"/></svg>
+    <h3 class="wb-pane-title">Transformers</h3>
+  </div>
+  <p class="wb-note">Five kinds of transformer, explained. These are reference entries: they cannot be connected or simulated yet. Voltage classes (low, medium, high, extra-high) have no numeric limits here because the boundaries differ between standards.</p>
+  <div class="lib-items">${transformers.map(transformerCard).join('')}</div>`;
 }
 
 export function initLibrarySections(): void {
-  const host = document.getElementById('libSections');
-  if (!host) return;
+  const host = document.getElementById('libSections'), tHost = document.getElementById('libTransformers');
+  if (!host || !tHost) return;
   try {
     const registry = createRegistry({ categories: CATEGORIES, families: FAMILIES, definitions: TRANSFORMER_DEFINITIONS, parts: [] }, { adapterIds: [] });
     const transformers = registry.definitionsInFamily('fam.transformers');
-    host.innerHTML = managementSection() + componentsSection(transformers) + transformersSection(transformers);
+    host.innerHTML = managementSection() + componentsSection(transformers);
+    tHost.innerHTML = transformersSection(transformers);
   } catch (error) {
     console.error('Volta Lab: the component library data is invalid', error);
-    host.innerHTML = '<p class="wb-empty" role="alert">The component library could not be shown. The load models below still work.</p>';
+    const msg = '<p class="wb-empty" role="alert">The component library could not be shown. The load models still work.</p>';
+    host.innerHTML = msg; tHost.innerHTML = msg;
   }
 }
 

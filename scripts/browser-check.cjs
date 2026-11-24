@@ -580,7 +580,7 @@ const txt2 = (pg, sel) => pg.evaluate((q) => (document.querySelector(q) || {}).t
     const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } }); await ctx.addInitScript(SEEN_INIT);
     const pg = await ctx.newPage(); await gotoReady(pg);
     await pg.click('#panelToggle'); await pg.waitForTimeout(500);
-    const names = await pg.evaluate(() => [...document.querySelectorAll('[role=tab]')].map((t) => t.getAttribute('aria-label') || t.textContent.trim()));
+    const names = await pg.evaluate(() => [...document.querySelectorAll('#controlPanel [role=tab]')].map((t) => t.getAttribute('aria-label') || t.textContent.trim()));
     ok('Controls panel has the five Control Room sections as tabs (no Load Lab)', names.join('|') === 'Controls|Settings|Help|Learning Hub|Limitations & Safety', names.join('|'));
     ok('Controls tab holds Main Power, AC/DC, voltage, wire and camera controls', (await pg.evaluate(() => ['powerBtn', 'modeAcBtn', 'modeDcBtn', 'voltageSlider', 'touchWiresBtn', 'separateWiresBtn', 'resetCameraBtn'].every((i) => document.getElementById('pane-controls').contains(document.getElementById(i))))));
     await pg.focus('#tab-controls'); await pg.keyboard.press('ArrowRight'); await pg.waitForTimeout(150);
@@ -699,6 +699,12 @@ const txt2 = (pg, sel) => pg.evaluate((q) => (document.querySelector(q) || {}).t
     const slider = (v) => pg.evaluate((x) => { const el = document.getElementById('voltageSlider'); el.value = String(x); el.dispatchEvent(new Event('input', { bubbles: true })); }, v);
     const txt = (sel) => pg.evaluate((q) => (document.querySelector(q) || {}).textContent || '', sel);
     const setField = async (key, value) => { await pg.fill(`#ll-${key}`, value); };
+    // The side panel shows one area at a time (Library / Work area / Properties) on every width, so real clicks and typing first switch to the area that holds the target.
+    const rawClick = pg.click.bind(pg), rawFill = pg.fill.bind(pg);
+    const areaFor = (sel) => /#llLibrary/.test(sel) ? 'library' : /#llConnectBtn|#llDisconnectBtn|#llReplaceBtn|#llPreset|#ll-|#llForm|\.ll-optional|\[data-field/.test(sel) ? 'properties' : null;
+    const goArea = async (a) => { if (!(await pg.locator('#workbench').isVisible())) return; if ((await pg.getAttribute('.wb-body', 'data-area')) !== a) { await rawClick(`[data-wb-area=${a === 'work' ? 'workspace' : a}]`); await pg.waitForTimeout(120); } };
+    pg.click = async (sel, o) => { const a = typeof sel === 'string' && areaFor(sel); if (a) await goArea(a); return rawClick(sel, o); };
+    pg.fill = async (sel, v, o) => { const a = typeof sel === 'string' && areaFor(sel); if (a) await goArea(a); return rawFill(sel, v, o); };
     const openWb = async () => { await pg.click('#workbenchBtn'); await pg.waitForSelector('#workbench', { state: 'visible' }); await pg.waitForTimeout(450); };
     const closeWb = async () => { await pg.click('#wbClose'); await pg.waitForSelector('#workbench', { state: 'hidden' }); await pg.waitForTimeout(300); };
     const ensurePanel = async () => { if ((await attr(pg, '#panelToggle', 'aria-expanded')) !== 'true') { await pg.click('#panelToggle'); await pg.waitForTimeout(500); } };
@@ -715,14 +721,14 @@ const txt2 = (pg, sel) => pg.evaluate((q) => (document.querySelector(q) || {}).t
     ok('left area is titled “Available Load Models” and says it is not the complete component library', /Available Load Models/.test(await txt('#wbLibraryHeading')) && /not the complete electronics component library/.test(await txt('[data-wb-region=library]')));
     // ---- Library sections (Management & Control, Circuits & Components, Transformers): lazy-loaded, honest, no fake controls ----
     await pg.waitForSelector('#libSections .lib-section', { timeout: 10000 });
-    ok('library shows three sections: Management & Control, Circuits & Components, Transformers', (await pg.evaluate(() => [...document.querySelectorAll('#libSections .lib-section-name')].map((e) => e.textContent.trim()).join('|'))) === 'Management & Control|Circuits & Components|Transformers');
-    ok('the sections sit above the load models and every section has a symbol marked decorative', await pg.evaluate(() => { const h = document.getElementById('libSections'), l = document.getElementById('llLibrary'); return !!(h.compareDocumentPosition(l) & Node.DOCUMENT_POSITION_FOLLOWING) && [...h.querySelectorAll('.lib-section > summary svg')].length === 3 && [...h.querySelectorAll('.lib-section > summary svg')].every((v) => v.getAttribute('aria-hidden') === 'true'); }));
-    ok('five transformer entries, each labelled catalogue-only / not simulated, with a circuit symbol caption', await pg.evaluate(() => { const c = [...document.querySelectorAll('#libSections .lib-item')]; return c.length === 5 && c.every((x) => /Catalogue entry only, not simulated/.test(x.querySelector('summary').textContent) && /circuit symbol/.test(x.textContent)); }));
-    ok('the sections add no inputs, selects or buttons (no fake controls)', await pg.evaluate(() => document.getElementById('libSections').querySelectorAll('input, select, button, textarea, a').length === 0));
+    ok('Components section shows two library sections (Management & Control, Circuits & Components); Transformers has its own tab', (await pg.evaluate(() => [...document.querySelectorAll('#libSections .lib-section-name')].map((e) => e.textContent.trim()).join('|'))) === 'Management & Control|Circuits & Components' && (await pg.evaluate(() => !document.getElementById('libSections').querySelector('.lib-item') && document.getElementById('wbpane-transformers').contains(document.getElementById('libTransformers')))));
+    ok('the sections sit above the load models and every section has a symbol marked decorative', await pg.evaluate(() => { const h = document.getElementById('libSections'), l = document.getElementById('llLibrary'); return !!(h.compareDocumentPosition(l) & Node.DOCUMENT_POSITION_FOLLOWING) && [...h.querySelectorAll('.lib-section > summary svg')].length === 2 && [...h.querySelectorAll('.lib-section > summary svg')].every((v) => v.getAttribute('aria-hidden') === 'true'); }));
+    ok('five transformer entries, each labelled catalogue-only / not simulated, with a circuit symbol caption', await pg.evaluate(() => { const c = [...document.querySelectorAll('#libTransformers .lib-item')]; return c.length === 5 && c.every((x) => /Catalogue entry only, not simulated/.test(x.querySelector('summary').textContent) && /circuit symbol/.test(x.textContent)); }));
+    ok('the sections add no inputs, selects or buttons (no fake controls)', await pg.evaluate(() => document.getElementById('libSections').querySelectorAll('input, select, button, textarea, a').length === 0 && document.getElementById('libTransformers').querySelectorAll('input, select, button, textarea, a').length === 0));
     ok('Management lists what is available now and what is planned, honestly', await pg.evaluate(() => { const t = document.querySelector('#libSections .lib-section').textContent; return /Available now/.test(t) && /Planned, not available yet/.test(t); }));
     ok('the category tree shows 11 shelves and marks empty ones', await pg.evaluate(() => document.querySelectorAll('#libSections .lib-cat').length === 11 && /empty/.test(document.querySelector('#libSections').textContent)));
-    await pg.evaluate(() => document.querySelector('#libSections .lib-item').setAttribute('open', ''));
-    ok('an opened transformer explains itself: what it is, what it does, terminals, ideal relations, no invented values', await pg.evaluate(() => { const b = document.querySelector('#libSections .lib-item .lib-item-body').textContent; return /What it is/.test(b) && /What it does in a circuit/.test(b) && /Terminals/.test(b) && /Vp \/ Vs = Np \/ Ns/.test(b) && /No values are given here/.test(b) && !/\d+\s?(kV|kVA|MVA)\b/.test(b); }));
+    await pg.evaluate(() => document.querySelector('#libTransformers .lib-item').setAttribute('open', ''));
+    ok('an opened transformer explains itself: what it is, what it does, terminals, ideal relations, no invented values', await pg.evaluate(() => { const b = document.querySelector('#libTransformers .lib-item .lib-item-body').textContent; return /What it is/.test(b) && /What it does in a circuit/.test(b) && /Terminals/.test(b) && /Vp \/ Vs = Np \/ Ns/.test(b) && /No values are given here/.test(b) && !/\d+\s?(kV|kVA|MVA)\b/.test(b); }));
     ok('the load models below still render and no horizontal scroll is created', (await pg.evaluate(() => document.querySelectorAll('#llLibrary [role=radio]').length)) === 5 && (await pg.evaluate(() => { const r = document.querySelector('[data-wb-region=library]'); return r.scrollWidth <= r.clientWidth + 1; })));
     await pg.screenshot({ path: `${SHOT}/shot-library-sections-desktop.png` });
     const cards = await pg.evaluate(() => [...document.querySelectorAll('#llLibrary [role=radio]')].map((b) => b.dataset.load));
@@ -733,7 +739,7 @@ const txt2 = (pg, sel) => pg.evaluate((q) => (document.querySelector(q) || {}).t
     ok('roadmap is labelled planned and contains no interactive controls', await pg.evaluate(() => { const r = document.querySelector('.ll-roadmap'); return /planned, not available yet/i.test(r.textContent) && r.querySelectorAll('button, input, a, select').length === 0; }));
 
     // nothing selected: clean empty state
-    ok('with no model selected the work area and properties show clean empty states', /No model selected/.test(await txt('#llWork')) && /Nothing selected/.test(await txt('#llForm')) && (await pg.locator('#llLive').isHidden()) && (await pg.locator('#ll-ohms').count()) === 0);
+    ok('with no model selected the work area and properties show clean empty states', /No model selected/.test(await txt('#llWork')) && /Nothing selected/.test(await txt('#llForm')) && await (async () => { await goArea('workspace'); return pg.locator('#llLive').isHidden(); })() && (await pg.locator('#ll-ohms').count()) === 0);
     ok('no card is selected and Connect is disabled until a model is chosen', await pg.evaluate(() => [...document.querySelectorAll('#llLibrary [role=radio]')].every((b) => b.getAttribute('aria-checked') === 'false') && document.getElementById('llConnectBtn').disabled));
 
     // selection
@@ -741,7 +747,7 @@ const txt2 = (pg, sel) => pg.evaluate((q) => (document.querySelector(q) || {}).t
     ok('choosing a card marks it selected (aria-checked and a visible “Selected” label)', (await attr(pg, '#llLibrary [data-load="resistor"]', 'aria-checked')) === 'true' && /Selected/.test(await txt('#llLibrary [data-load="resistor"] .ll-selected-tag')));
     const workTxt = await txt('#llWork');
     ok('work area shows the model name, explanation, what it does in a circuit and AC/DC compatibility', /Resistor/.test(workTxt) && /Ohm.s law/.test(workTxt) && /In a circuit/.test(workTxt) && /Limits the current/.test(workTxt) && /Works on/.test(workTxt) && /AC or DC/.test(workTxt) && /circuit symbol/.test(workTxt), workTxt.replace(/\s+/g, ' ').slice(0, 200));
-    ok('work area shows the live connection status area once a model is chosen (no load yet)', (await pg.locator('#llLive').isVisible()) && /NO LOAD/.test(await txt('#llStatus')) && /No load connected/.test(await resultText()), await txt('#llStatus'));
+    await goArea('workspace'); ok('work area shows the live connection status area once a model is chosen (no load yet)', (await pg.locator('#llLive').isVisible()) && /NO LOAD/.test(await txt('#llStatus')) && /No load connected/.test(await resultText()), await txt('#llStatus'));
     const lbl = await txt('[data-field=ohms] label'), help = await txt('[data-field=ohms] .ll-help');
     ok('properties explain notation: “Resistance (R)”, “measured in ohms (Ω)”, allowed range', /Resistance \(R\)/.test(lbl) && /Measured in ohms \(Ω\)/.test(help) && /Allowed/.test(help), `${lbl} | ${help}`);
     ok('example values are labelled illustrative and not a manufacturer rating', /ILLUSTRATIVE/.test(await txt('#llProvenance')) && /not a manufacturer rating/.test(await txt('#llProvenance')));
@@ -854,15 +860,15 @@ const txt2 = (pg, sel) => pg.evaluate((q) => (document.querySelector(q) || {}).t
     ok('results refresh continuously from the engine snapshot while the Workbench is open (100 Ω at 100 V DC → 1.00 A)', /1\.00 A DC/.test(await resultText()), (await resultText()).replace(/\s+/g, ' ').slice(0, 140));
 
     // keyboard: radiogroup arrow navigation, focus management
-    await pg.focus('#llLibrary [data-load="resistor"]'); await pg.keyboard.press('ArrowDown'); await pg.waitForTimeout(250);
+    await goArea('library'); await pg.focus('#llLibrary [data-load="resistor"]'); await pg.keyboard.press('ArrowDown'); await pg.waitForTimeout(250);
     ok('ArrowDown in the library moves selection and focus to the next load', (await pg.evaluate(() => document.activeElement.dataset.load)) === 'inductor' && (await attr(pg, '#llLibrary [data-load="inductor"]', 'aria-checked')) === 'true');
     ok('exactly one library card is in the tab order (roving tabindex)', (await pg.evaluate(() => [...document.querySelectorAll('#llLibrary [role=radio]')].filter((b) => b.tabIndex === 0).length)) === 1);
     const unlabeled = await pg.evaluate(() => [...document.querySelectorAll('#workbench input, #workbench select')].filter((i) => !(i.labels && i.labels.length) && !i.getAttribute('aria-label')).length);
     ok('every Workbench input and select has an accessible name', unlabeled === 0, String(unlabeled));
     const dupIds = await pg.evaluate(() => { const ids = [...document.querySelectorAll('[id]')].map((e) => e.id); return ids.filter((x, i) => ids.indexOf(x) !== i); });
     ok('no duplicate DOM ids with a model selected, a load connected and the form rendered', dupIds.length === 0, dupIds.join(','));
-    const geo = await pg.evaluate(() => ({ overflow: document.documentElement.scrollWidth > innerWidth + 1 || document.getElementById('workbench').scrollWidth > innerWidth + 1, regions: ['library', 'workspace', 'properties'].map((r) => { const b = document.querySelector(`[data-wb-region=${r}]`).getBoundingClientRect(); return [Math.round(b.left), Math.round(b.width)]; }) }));
-    ok('desktop 1440: three areas side by side with content, no horizontal overflow', !geo.overflow && geo.regions[0][0] < geo.regions[1][0] && geo.regions[1][0] < geo.regions[2][0] && geo.regions.every((r) => r[1] > 200), JSON.stringify(geo));
+    const geo = await pg.evaluate(() => ({ overflow: document.documentElement.scrollWidth > innerWidth + 1 || document.getElementById('workbench').scrollWidth > innerWidth + 1, panel: (() => { const b = document.getElementById('workbench').getBoundingClientRect(); return [Math.round(b.left), Math.round(b.width), Math.round(b.height)]; })(), shown: ['library', 'workspace', 'properties'].filter((r) => getComputedStyle(document.querySelector(`[data-wb-region=${r}]`)).display !== 'none') }));
+    ok('desktop 1440: side panel (≤441 px wide, left edge ≤12 px, shorter than the viewport) shows exactly one area with content, no horizontal overflow', !geo.overflow && geo.panel[1] <= 441 && geo.panel[0] <= 12 && geo.panel[2] < 900 && geo.shown.length === 1, JSON.stringify(geo));
     await pg.screenshot({ path: `${SHOT}/workbench-loadlab-desktop.png` });
     await closeWb();
     ok('closing the Workbench leaves only the machine screen (no Load Lab UI visible)', !(await pg.locator('#llLibrary').isVisible()));
@@ -904,7 +910,7 @@ const txt2 = (pg, sel) => pg.evaluate((q) => (document.querySelector(q) || {}).t
     await ctx.close();
   }
 
-  // ---- Component Workbench shell (Phase 1A): separate full-screen workspace, machine state untouched while it is open
+  // ---- Component Workbench shell (side panel): non-modal left panel, machine state untouched and still usable while it is open
   {
     const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } }); await ctx.addInitScript(SEEN_INIT);
     const pg = await ctx.newPage(); await gotoReady(pg);
@@ -928,35 +934,49 @@ const txt2 = (pg, sel) => pg.evaluate((q) => (document.querySelector(q) || {}).t
     const before = await sn(); const camPos0 = await attr(pg, '#sceneCanvas', 'data-camera-position');
 
     await pg.click('#workbenchBtn'); await pg.waitForTimeout(400);
-    ok('clicking Workbench opens a visible full-screen dialog and sets aria-expanded', (await pg.locator('#workbench').isVisible()) && (await attr(pg, '#workbenchBtn', 'aria-expanded')) === 'true');
+    ok('clicking Workbench opens a visible side panel and sets aria-expanded', (await pg.locator('#workbench').isVisible()) && (await attr(pg, '#workbenchBtn', 'aria-expanded')) === 'true');
     const wbBox = await box('#workbench');
-    ok('the dialog covers the whole viewport', wbBox.l === 0 && wbBox.t === 0 && Math.abs(wbBox.w - 1440) < 1 && Math.abs(wbBox.h - 900) < 1, JSON.stringify(wbBox));
-    ok('focus moves to the dialog title', (await pg.evaluate(() => document.activeElement.id)) === 'wbTitle');
-    ok('the machine page is inert while the Workbench is open (modal)', await pg.evaluate(() => document.getElementById('app').inert === true && document.getElementById('workbench').inert !== true));
-    const rg = await pg.evaluate(() => ['library', 'workspace', 'properties'].map((r) => { const e = document.querySelector(`[data-wb-region="${r}"]`); const b = e.getBoundingClientRect(); return { r, l: b.left, w: b.width, h: b.height, vis: b.width > 0 && b.height > 0, name: e.getAttribute('aria-labelledby') && document.getElementById(e.getAttribute('aria-labelledby')).textContent }; }));
-    ok('three labelled areas are visible side by side: library (left), work area (centre), properties (right)', rg.every((x) => x.vis) && rg[0].l < rg[1].l && rg[1].l < rg[2].l && rg[1].w > rg[0].w && rg.map((x) => x.name).join('|') === 'Available Load Models|Work area|Properties', JSON.stringify(rg));
-    ok('desktop: the area switcher is hidden (all three areas show at once)', !(await pg.locator('.wb-switch').isVisible()));
-    ok('no components or controls are faked inside the shell', (await pg.evaluate(() => document.querySelectorAll('#workbench input, #workbench select, #workbench canvas').length)) === 0);
+    ok('the panel is a left side panel, NOT full screen (≤ 441 px wide, shorter than the viewport, left of the Controls panel)', wbBox.w <= 441 && wbBox.h < 900 && wbBox.l >= 0 && wbBox.l <= 12 && (await pg.evaluate(() => document.getElementById('workbench').getBoundingClientRect().left < document.getElementById('controlPanel').getBoundingClientRect().left)), JSON.stringify(wbBox));
+    ok('focus moves to the panel title', (await pg.evaluate(() => document.activeElement.id)) === 'wbTitle');
+    ok('the machine page is NOT inert while the Workbench is open (non-modal) and the canvas stays visible; the scene docks beside the panel', await pg.evaluate(() => document.getElementById('app').inert === false && document.getElementById('sceneCanvas').getBoundingClientRect().width > 100 && Math.round(document.querySelector('.scene-section').getBoundingClientRect().left) === 464));
+    ok('the panel is a labelled complementary landmark, not a dialog (no role=dialog / aria-modal)', await pg.evaluate(() => { const p = document.getElementById('workbench'); return p.tagName === 'ASIDE' && !p.hasAttribute('aria-modal') && p.getAttribute('role') === null && !!p.getAttribute('aria-labelledby'); }));
+    const tabsInfo = await pg.evaluate(() => { const t = [...document.querySelectorAll('#workbench [role=tab]')]; return { names: t.map((x) => x.textContent.trim()).join('|'), sel: t.map((x) => x.getAttribute('aria-selected')).join(','), panes: t.map((x) => !document.getElementById(x.getAttribute('aria-controls')).hidden).join(','), tabbable: t.filter((x) => x.tabIndex === 0).length }; });
+    ok('three section tabs (Components, Transformers, Section 3): Components selected and shown, one tab in the tab order', tabsInfo.names === 'Components|Transformers|Section 3' && tabsInfo.sel === 'true,false,false' && tabsInfo.panes === 'true,false,false' && tabsInfo.tabbable === 1, JSON.stringify(tabsInfo));
+    const rg = await pg.evaluate(() => ['library', 'workspace', 'properties'].map((r) => { const e = document.querySelector(`[data-wb-region="${r}"]`); return { r, shown: getComputedStyle(e).display !== 'none', name: e.getAttribute('aria-labelledby') && document.getElementById(e.getAttribute('aria-labelledby')).textContent }; }));
+    ok('Components section: the area switcher is always visible; only the Library area shows first; the three areas are labelled Available Load Models | Work area | Properties', (await pg.locator('.wb-switch').isVisible()) && rg[0].shown && !rg[1].shown && !rg[2].shown && rg.map((x) => x.name).join('|') === 'Available Load Models|Work area|Properties', JSON.stringify(rg));
+    ok('the shell fakes no canvas (no inputs, selects or canvas exist until a load model is chosen)', (await pg.evaluate(() => document.querySelectorAll('#workbench canvas').length)) === 0);
+    // the Transformers and Section 3 tabs
+    await pg.click('#wbtab-transformers'); await pg.waitForTimeout(150);
+    ok('Transformers tab shows the five transformer cards and hides Components', await pg.evaluate(() => !document.getElementById('wbpane-transformers').hidden && document.getElementById('wbpane-components').hidden && document.querySelectorAll('#libTransformers .lib-item').length === 5));
+    await pg.click('#wbtab-third'); await pg.waitForTimeout(150);
+    ok('Section 3 is an honest placeholder: reserved, nothing offered, no controls', await pg.evaluate(() => { const p = document.getElementById('wbpane-third'); return !p.hidden && /has not been decided yet/.test(p.textContent) && p.querySelectorAll('input, select, button, textarea, a').length === 0; }));
+    await pg.focus('#wbtab-third'); await pg.keyboard.press('ArrowRight');
+    ok('ArrowRight on the last tab wraps to Components and moves focus there', (await pg.evaluate(() => document.activeElement.id)) === 'wbtab-components' && (await pg.evaluate(() => !document.getElementById('wbpane-components').hidden)));
+    await pg.keyboard.press('End'); await pg.keyboard.press('Home');
+    ok('End then Home moves between the last and first tab', (await pg.evaluate(() => document.activeElement.id)) === 'wbtab-components');
+    await pg.click('#wbtab-components'); await pg.waitForTimeout(100);
 
-    // keyboard: the machine shortcuts must not act behind the dialog; the machine keeps running
+    // keyboard: keys typed INSIDE the panel (focus on a tab) must not act on the machine; the machine keeps running
+    await pg.focus('#wbtab-components');
     for (const k of ['Space', 't', 's', 'm', 'x', 'r', 'p', 'ArrowUp', 'ArrowDown', '?']) { await pg.keyboard.press(k); }
+    await pg.focus('#wbtab-components');
     await pg.waitForTimeout(1200);
     const during = await sn();
-    ok('machine shortcuts (Space, T, S, M, X, R, P, arrows, ?) do nothing while the Workbench is open', during.inputs.powerOn === before.inputs.powerOn && during.inputs.mode === before.inputs.mode && during.inputs.connection === 'load' && Math.abs(during.inputs.setpointV - before.inputs.setpointV) < 0.01 && (await pg.locator('#controlPanel').isHidden() || !(await pg.evaluate(() => document.querySelector('.stage').classList.contains('panel-open')))), JSON.stringify({ p: during.inputs.powerOn, m: during.inputs.mode, c: during.inputs.connection, v: during.inputs.setpointV }));
+    ok('machine shortcuts (Space, T, S, M, X, R, P, arrows, ?) typed inside the Workbench do nothing', during.inputs.powerOn === before.inputs.powerOn && during.inputs.mode === before.inputs.mode && during.inputs.connection === 'load' && Math.abs(during.inputs.setpointV - before.inputs.setpointV) < 0.01 && (await pg.locator('#controlPanel').isHidden() || !(await pg.evaluate(() => document.querySelector('.stage').classList.contains('panel-open')))), JSON.stringify({ p: during.inputs.powerOn, m: during.inputs.mode, c: during.inputs.connection, v: during.inputs.setpointV }));
     ok('the engine is still alive: output current, battery SOC (not reset) and LCD are consistent', Math.abs(during.output.currentA - 2.4) < 0.05 && during.battery.socFrac <= before.battery.socFrac && during.battery.socFrac > before.battery.socFrac - 0.01 && (await attr(pg, '#sceneCanvas', 'data-display-lit')) === 'true', `${during.output.currentA} ${before.battery.socFrac}->${during.battery.socFrac}`);
-    await pg.mouse.move(720, 450); await pg.mouse.wheel(0, -400); await pg.mouse.down(); await pg.mouse.move(900, 500, { steps: 5 }); await pg.mouse.up(); await pg.waitForTimeout(600);
-    ok('wheel and drag over the dialog do not move the camera behind it', (await attr(pg, '#sceneCanvas', 'data-camera-position')) === camPos0);
+    await pg.mouse.move(220, 450); await pg.mouse.wheel(0, -400); await pg.waitForTimeout(500);
+    ok('wheel over the side panel does not move the camera (the machine view stays put)', (await attr(pg, '#sceneCanvas', 'data-camera-position')) === camPos0);
 
-    // Tab stays inside the dialog (focus trap), both directions
-    const inside = [];
-    for (let i = 0; i < 8; i++) { await pg.keyboard.press('Tab'); inside.push(await pg.evaluate(() => document.getElementById('workbench').contains(document.activeElement))); }
-    for (let i = 0; i < 4; i++) { await pg.keyboard.press('Shift+Tab'); inside.push(await pg.evaluate(() => document.getElementById('workbench').contains(document.activeElement))); }
-    ok('Tab and Shift+Tab never leave the open dialog', inside.every(Boolean), inside.join(','));
+    // non-modal: there is no focus trap; Tab may leave the panel and reach the machine controls
+    await pg.focus('#wbClose'); let leftPanel = false;
+    for (let i = 0; i < 40 && !leftPanel; i++) { await pg.keyboard.press('Tab'); leftPanel = !(await pg.evaluate(() => document.getElementById('workbench').contains(document.activeElement))); }
+    ok('non-modal: Tab can leave the panel (no focus trap), so the machine controls stay keyboard-reachable', leftPanel);
+    await pg.focus('#wbtab-components');
 
     // Escape closes, focus returns to the opener, everything is restored
     await pg.keyboard.press('Escape'); await pg.waitForTimeout(300);
-    ok('Escape closes the Workbench and returns focus to the Workbench button', (await pg.locator('#workbench').isHidden()) && (await pg.evaluate(() => document.activeElement.id)) === 'workbenchBtn' && (await attr(pg, '#workbenchBtn', 'aria-expanded')) === 'false');
-    ok('the machine page is interactive again (not inert)', await pg.evaluate(() => document.getElementById('app').inert === false));
+    ok('Escape (with focus inside the panel) closes the Workbench and returns focus to the Workbench button', (await pg.locator('#workbench').isHidden()) && (await pg.evaluate(() => document.activeElement.id)) === 'workbenchBtn' && (await attr(pg, '#workbenchBtn', 'aria-expanded')) === 'false');
+    ok('the machine page is still interactive (not inert) after closing', await pg.evaluate(() => document.getElementById('app').inert === false));
     const after = await sn();
     ok('after closing: Main Power, mode, 120 V set-point, connected load, camera mode and camera position are all unchanged', after.inputs.powerOn && after.inputs.mode === before.inputs.mode && after.inputs.connection === 'load' && Math.abs(after.inputs.setpointV - 120) < 0.01 && (await attr(pg, '#sceneCanvas', 'data-camera-mode')) === camMode && (await attr(pg, '#sceneCanvas', 'data-camera-position')) === camPos0 && /Resistive|Resistor/.test(after.load.label), `${after.load && after.load.label}`);
     await pg.keyboard.press('x'); await ws((x) => !x.inputs.powerOn);
@@ -965,7 +985,7 @@ const txt2 = (pg, sel) => pg.evaluate((q) => (document.querySelector(q) || {}).t
 
     // the Close button path
     await pg.click('#workbenchBtn'); await pg.waitForTimeout(300); await pg.click('#wbClose'); await pg.waitForTimeout(300);
-    ok('the “Machine” close button also closes and returns focus', (await pg.locator('#workbench').isHidden()) && (await pg.evaluate(() => document.activeElement.id)) === 'workbenchBtn');
+    ok('the X close button also closes and returns focus', (await pg.locator('#workbench').isHidden()) && (await pg.evaluate(() => document.activeElement.id)) === 'workbenchBtn');
     await pg.screenshot({ path: `${SHOT}/workbench-closed-1440.png` });
     await pg.click('#workbenchBtn'); await pg.waitForTimeout(400); await pg.screenshot({ path: `${SHOT}/workbench-open-1440.png` });
     ok('no uncaught errors while opening and closing the Workbench on desktop', werrs.length === 0, werrs.slice(0, 2).join(' | '));
@@ -987,8 +1007,14 @@ const txt2 = (pg, sel) => pg.evaluate((q) => (document.querySelector(q) || {}).t
       const small = [...document.querySelectorAll('#workbench button')].filter((b) => b.offsetParent !== null && b.getBoundingClientRect().height < 44).map((b) => b.id || b.textContent);
       return { overflow: document.documentElement.scrollWidth > innerWidth + 1 || document.getElementById('workbench').scrollWidth > innerWidth + 1, switcher: vis('.wb-switch'), lib: vis('[data-wb-region=library]'), ws: vis('[data-wb-region=workspace]'), props: vis('[data-wb-region=properties]'), small };
     });
-    const narrow = w <= 900;
-    ok(`${label}: Workbench opens, no horizontal overflow, buttons ≥44px, one area at a time with a switcher`, m.overflow === false && m.small.length === 0 && m.switcher === narrow && m.lib && !m.ws && !m.props, JSON.stringify(m));
+    const sideBox = await pg.evaluate(() => { const r = document.getElementById('workbench').getBoundingClientRect(); return { w: r.width, h: r.height, vw: innerWidth, vh: innerHeight }; });
+    ok(`${label}: Workbench opens as a side panel (not full screen), no horizontal overflow, buttons ≥44px, one area at a time with a switcher`, m.overflow === false && m.small.length === 0 && m.switcher === true && m.lib && !m.ws && !m.props && sideBox.w < sideBox.vw && sideBox.h < sideBox.vh && sideBox.w <= 441, JSON.stringify({ m, sideBox }));
+    await pg.tap('#wbtab-transformers'); await pg.waitForTimeout(250);
+    const tr = await pg.evaluate(() => ({ cards: document.querySelectorAll('#libTransformers .lib-item').length, shown: !document.getElementById('wbpane-transformers').hidden, overflow: document.documentElement.scrollWidth > innerWidth + 1 || document.getElementById('workbench').scrollWidth > document.getElementById('workbench').clientWidth + 1, small: [...document.querySelectorAll('#libTransformers summary')].filter((e) => e.getBoundingClientRect().height < 44).length }));
+    ok(`${label}: Transformers tab shows five cards that fit (no overflow, touch targets ≥44px)`, tr.cards === 5 && tr.shown && !tr.overflow && tr.small === 0, JSON.stringify(tr));
+    await pg.tap('#wbtab-third'); await pg.waitForTimeout(200);
+    ok(`${label}: Section 3 placeholder is reachable by touch`, await pg.evaluate(() => !document.getElementById('wbpane-third').hidden && /has not been decided yet/.test(document.getElementById('wbpane-third').textContent)));
+    await pg.tap('#wbtab-components'); await pg.waitForTimeout(200);
     await pg.tap('[data-wb-area=workspace]'); await pg.waitForTimeout(250);
     const a2 = await pg.evaluate(() => ({ ws: getComputedStyle(document.querySelector('[data-wb-region=workspace]')).display !== 'none', lib: getComputedStyle(document.querySelector('[data-wb-region=library]')).display !== 'none', pressed: document.querySelector('[data-wb-area=workspace]').getAttribute('aria-pressed') }));
     await pg.tap('[data-wb-area=properties]'); await pg.waitForTimeout(250);
