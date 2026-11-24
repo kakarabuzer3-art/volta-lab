@@ -547,3 +547,9 @@ kbd { display: inline-block; min-width: 24px; padding: 2px 7px; border-radius: 6
 .tb-item .ll-fields { grid-template-columns: 1fr 1fr; gap: 10px; }
 .tb-item .ll-input { width: 100%; box-sizing: border-box; }
 .tb-item .ll-hint { font-size: var(--fs-meta); }
+
+/* Load models: drag grip and machine-output drop area */
+.ll-grip { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; min-height: 28px; margin-right: 6px; border-radius: 6px; border: 1px solid var(--border-control); color: var(--text-secondary); cursor: grab; touch-action: none; user-select: none; }
+.ll-grip:active { cursor: grabbing; }
+.ll-drop { margin-bottom: 10px; }
+@media (pointer: coarse) { .ll-grip { min-width: 44px; min-height: 44px; } }

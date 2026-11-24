@@ -1,6 +1,7 @@
 // Load Lab V1 — the DOM half, mounted inside the Component Workbench (library | work area | properties). Collects text, converts units and validates through ./sim/loadlab.ts, asks the coordinator to connect the
 // load, and shows results copied from the engine snapshot. It contains no electrical equations and no three.js.
 import { LOAD_CATALOGUE, buildLoad, describeLoadResults, loadTypeSpec, rangeHint } from './sim/index.ts';
+import { attachGripDrag } from './drag-drop.ts';
 import type { ConnectionCoordinator, FieldSpec, LoadTypeId, LoadTypeSpec, RawForm, Snapshot } from './sim/index.ts';
 
 export interface LoadLabDeps {
@@ -50,7 +51,7 @@ export function initLoadLab(deps: LoadLabDeps): LoadLabUi {
       const on = l.id === selected;
       const first = selected === null && i === 0; // nothing chosen yet: the first card is the single tab stop
       return `<button type="button" role="radio" class="ll-card" aria-checked="${on}" tabindex="${on || first ? 0 : -1}" data-load="${l.id}" data-index="${i}">
-        <span class="ll-card-top">${SYMBOL(l.symbol)}<span class="ll-card-name">${esc(l.name)}</span>${on ? '<span class="ll-selected-tag">Selected</span>' : ''}</span>
+        <span class="ll-card-top"><span class="ll-grip" data-grip="${l.id}" aria-hidden="true" title="Drag to the machine output">⠿</span>${SYMBOL(l.symbol)}<span class="ll-card-name">${esc(l.name)}</span>${on ? '<span class="ll-selected-tag">Selected</span>' : ''}</span>
         <span class="ll-card-sum">${esc(l.summary)}</span>
         <span class="ll-card-meta"><b>Input</b> ${esc(l.inputSupport)} · <b>Values</b> ${l.params.filter((p) => !p.optional).map((p) => esc(p.symbol)).join(', ')}</span>
         <span class="ll-card-limit"><b>Limit</b> ${esc(l.limitation)}</span>
@@ -245,6 +246,22 @@ export function initLoadLab(deps: LoadLabDeps): LoadLabUi {
     }
     const rh = resultsHtml(snap);
     if (rh !== lastResultsHtml) { lastResultsHtml = rh; resultsHost.innerHTML = rh; }
+  }
+
+  // ---------------------------------------------------------------- pick and drop: drag a model's grip onto the machine-output drop area
+  // A drop selects the model (keeping typed values if it is already selected) and runs the SAME connect() as the Connect button: same validation,
+  // same coordinator, same engine. Nothing is faked and the keyboard path (choose a model, then Connect load) is unchanged.
+  const dropZone = document.getElementById('llDrop'), dropMsg = document.getElementById('llDropMsg');
+  if (dropZone) {
+    attachGripDrag(library, {
+      grip: '.ll-grip', idKey: 'grip', drop: dropZone,
+      label: (id) => LOAD_CATALOGUE.find((l) => l.id === id)?.name,
+      onDrop: (id) => {
+        if (id !== selected) selectLoad(id as LoadTypeId, false);
+        connect();
+        if (dropMsg) dropMsg.textContent = message + ' Live results are in the Work area.';
+      },
+    });
   }
 
   renderLibrary(); renderForm(); renderWork(); paintLive();

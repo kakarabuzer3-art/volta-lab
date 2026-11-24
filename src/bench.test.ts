@@ -6,8 +6,16 @@ const root = new URL('../', import.meta.url);
 const read = (f: string): string => readFileSync(new URL(f, root), 'utf8');
 const code = (t: string): string => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
-test('the test bench is DOM-only: it imports nothing (no component library, simulator, machine or three.js)', () => {
-  assert.equal(/^\s*import\s/m.test(code(read('src/transformer-bench.ts'))), false);
+test('the test bench is DOM-only: its only import is the shared drag module (no component library, simulator, machine or three.js)', () => {
+  const imports = code(read('src/transformer-bench.ts')).match(/^\s*import\s.*$/gm) ?? [];
+  assert.deepEqual(imports.map((l) => l.trim()), ["import { attachGripDrag } from './drag-drop.ts';"]);
+});
+test('drag-drop.ts imports nothing; a drop on the machine output uses the same connect() path as the Connect button', () => {
+  assert.equal(/^\s*import\s/m.test(code(read('src/drag-drop.ts'))), false);
+  const t = code(read('src/loadlab-ui.ts'));
+  assert.match(t, /onDrop: \(id\) => \{[\s\S]*?connect\(\);/);
+  assert.match(read('index.html'), /id="llDrop" class="tb-drop ll-drop" role="region" aria-label="Machine output drop area"/);
+  assert.match(t, /class="ll-grip"[^>]*aria-hidden="true"/);
 });
 test('pure transformer modules have no DOM and no simulator access', () => {
   for (const f of ['src/components/transformer-calc.ts', 'src/components/transformer-shape.ts']) {

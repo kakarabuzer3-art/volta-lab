@@ -2,6 +2,8 @@
 // button (the keyboard and touch way). The bench then shows the construction drawing and a LIVE ideal-transformer calculator: every keystroke recomputes.
 // It receives the calculator and the entries from library-ui.ts, so this file imports nothing from the component library, the simulator or three.js.
 // It is an arithmetic teaching aid for an ideal transformer, not a circuit simulation, and it is labelled that way.
+import { attachGripDrag } from './drag-drop.ts';
+
 export interface BenchEntry { readonly id: string; readonly name: string; readonly symbolHtml: string; readonly shapeHtml: string; readonly purpose: string }
 export interface BenchInput { turnsPrimary: number; turnsSecondary: number; primaryVoltage?: number; primaryCurrent?: number }
 export type BenchResult =
@@ -67,26 +69,5 @@ export function initBench(root: HTMLElement, entries: readonly BenchEntry[], cal
   });
 
   // pick and drop with a pointer (mouse, pen or touch) from the grip of a card
-  root.addEventListener('pointerdown', (ev) => {
-    const grip = (ev.target as HTMLElement).closest<HTMLElement>('[data-grip]');
-    if (!grip || (ev.pointerType === 'mouse' && ev.button !== 0)) return;
-    const id = grip.dataset.grip as string, e = byId.get(id);
-    if (!e) return;
-    ev.preventDefault();
-    const ghost = document.createElement('div');
-    ghost.className = 'tb-ghost'; ghost.textContent = e.name; ghost.setAttribute('aria-hidden', 'true');
-    document.body.appendChild(ghost);
-    drop.classList.add('is-armed');
-    const inside = (x: number, y: number): boolean => { const r = drop.getBoundingClientRect(); return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom; };
-    const move = (m: PointerEvent): void => { ghost.style.transform = `translate(${m.clientX + 8}px, ${m.clientY + 8}px)`; drop.classList.toggle('is-over', inside(m.clientX, m.clientY)); };
-    const end = (m: PointerEvent, drops: boolean): void => {
-      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', cancel);
-      ghost.remove(); drop.classList.remove('is-armed', 'is-over');
-      if (drops && inside(m.clientX, m.clientY)) place(id);
-    };
-    const up = (m: PointerEvent): void => end(m, true);
-    const cancel = (m: PointerEvent): void => end(m, false);
-    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', cancel);
-    move(ev);
-  });
+  attachGripDrag(root, { grip: '[data-grip]', idKey: 'grip', drop, label: (id) => byId.get(id)?.name, onDrop: (id) => place(id) });
 }
