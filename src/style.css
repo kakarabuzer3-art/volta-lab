@@ -517,3 +517,33 @@ kbd { display: inline-block; min-width: 24px; padding: 2px 7px; border-radius: 6
 .lib-pane-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .lib-pane-head .wb-pane-title { margin: 0; }
 .lib-transformers .wb-note { margin-bottom: 12px; }
+
+/* Transformer test bench: pick and drop target with a live ideal-transformer calculator */
+.tb { margin: 0 0 12px; }
+.tb-drop { border: 1.5px dashed var(--border-control); border-radius: 12px; padding: 12px; background: #0a1118; min-height: 72px; }
+.tb-drop.is-armed { border-color: var(--text-secondary); }
+.tb-drop.is-over { border-style: solid; border-color: var(--success); background: rgba(80, 200, 150, 0.08); }
+.tb-drop[data-placed] { border-style: solid; }
+.tb-hint { margin: 0; color: var(--text-secondary); font: 500 var(--fs-small) var(--font-ui); }
+.tb-item { display: grid; gap: 10px; }
+.tb-item-head { display: flex; align-items: center; gap: 10px; }
+.tb-name { flex: 1; margin: 0; font: 700 var(--fs-body) var(--font-ui); color: var(--text-primary); }
+.tb-name:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 3px; }
+.tb-fig { margin: 0; display: grid; justify-items: center; gap: 4px; }
+.ts-shape { width: 150px; max-width: 100%; height: auto; color: var(--text-secondary); fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linejoin: round; }
+.ts-core path, .ts-core ellipse { fill: rgba(166, 180, 194, 0.10); }
+.ts-coil rect { fill: rgba(220, 150, 80, 0.20); stroke: #d99a55; }
+.ts-coil path { stroke: #d99a55; }
+.ts-tap { stroke: var(--text-primary); stroke-width: 2; }
+.tb-out { display: block; padding: 10px 12px; border: 1px solid var(--border-control); border-radius: 8px; background: #0a0f16; color: var(--text-primary); font: 500 var(--fs-body) var(--font-ui); line-height: 1.5; }
+.tb-actions { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+.tb-place { min-height: var(--target); }
+.tb-grip { min-height: var(--target); min-width: var(--target); padding: 0 12px; border: 1px solid var(--border-control); border-radius: 8px; background: #101822; color: var(--text-primary); font: 600 var(--fs-small) var(--font-ui); cursor: grab; touch-action: none; user-select: none; }
+.tb-grip:active { cursor: grabbing; }
+.tb-ghost { position: fixed; left: 0; top: 0; z-index: 60; pointer-events: none; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--success); background: #0f1b17; color: var(--text-primary); font: 700 var(--fs-small) var(--font-ui); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); }
+/* sticky only while the bench is empty and compact, so a tall filled bench never covers the cards */
+@media (min-height: 780px) and (min-width: 701px) { .tb:not(:has([data-placed])) { position: sticky; top: -12px; z-index: 2; background: var(--surface); padding-top: 12px; margin-top: -12px; } }
+
+.tb-item .ll-fields { grid-template-columns: 1fr 1fr; gap: 10px; }
+.tb-item .ll-input { width: 100%; box-sizing: border-box; }
+.tb-item .ll-hint { font-size: var(--fs-meta); }

@@ -9,6 +9,9 @@ import { LEGACY_LOAD_META } from './components/data/legacy-load-meta.ts';
 import { createRegistry } from './components/registry.ts';
 import { describeEvidence } from './components/provenance.ts';
 import type { ComponentDefinition } from './components/types.ts';
+import { idealTransformer } from './components/transformer-calc.ts';
+import { transformerShapeSvg, type TransformerShapeKind } from './components/transformer-shape.ts';
+import { initBench } from './transformer-bench.ts';
 
 const esc = (t: string): string => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string);
 const symbolSvg = (d: ComponentDefinition): string => d.symbol
@@ -53,10 +56,16 @@ function componentsSection(transformers: readonly ComponentDefinition[]): string
   </details>`;
 }
 
+const SHAPE_KIND: Readonly<Record<string, TransformerShapeKind>> = {
+  'def.autotransformer': 'autotransformer', 'def.current-transformer': 'current-transformer',
+};
+const shapeKind = (d: ComponentDefinition): TransformerShapeKind => SHAPE_KIND[d.id] ?? 'two-winding';
+
 function transformerCard(d: ComponentDefinition): string {
   const limits = d.simulation.limitations;
   return `<details class="lib-item" data-def="${esc(d.id)}">
-    <summary><span class="lib-item-top">${symbolSvg(d)}<span class="lib-item-name">${esc(d.name)}</span></span><span class="lib-status">Catalogue entry only, not simulated</span></summary>
+    <summary><span class="lib-item-top">${symbolSvg(d)}<span class="lib-item-name">${esc(d.name)}</span></span><span class="lib-status">Catalogue entry only, not simulated</span>
+      <span class="tb-actions"><button type="button" class="secondary-action tb-place" data-place="${esc(d.id)}">Place on test bench</button><button type="button" class="tb-grip" data-grip="${esc(d.id)}" aria-label="Drag ${esc(d.name)} to the test bench. Keyboard and screen reader users: use Place on test bench.">⠿ Drag</button></span></summary>
     <div class="lib-item-body">
       <p class="ll-explain"><b>What it is.</b> ${esc(d.beginnerSummary)}</p>
       <p class="ll-explain"><b>What it does in a circuit.</b> ${esc(d.electricalPurpose)}</p>
@@ -76,7 +85,11 @@ function transformersSection(transformers: readonly ComponentDefinition[]): stri
     <svg class="lib-symbol lib-symbol-lg" viewBox="0 0 64 32" aria-hidden="true" focusable="false"><path d="M22 4a4 4 0 0 1 0 8a4 4 0 0 1 0 8a4 4 0 0 1 0 8M42 4a4 4 0 0 0 0 8a4 4 0 0 0 0 8a4 4 0 0 0 0 8M30 2V30M34 2V30M22 4H8M22 28H8M42 4H56M42 28H56"/></svg>
     <h3 class="wb-pane-title">Transformers</h3>
   </div>
-  <p class="wb-note">Five kinds of transformer, explained. These are reference entries: they cannot be connected or simulated yet. Voltage classes (low, medium, high, extra-high) have no numeric limits here because the boundaries differ between standards.</p>
+  <p class="wb-note">Five kinds of transformer, explained. These are reference entries: they cannot be connected or simulated yet, but you can place one on the test bench to try the ideal-transformer arithmetic live. Voltage classes (low, medium, high, extra-high) have no numeric limits here because the boundaries differ between standards.</p>
+  <section class="tb" aria-labelledby="tbTitle">
+    <h4 id="tbTitle" class="lib-sub">Test bench</h4>
+    <div id="tbDrop" class="tb-drop" role="region" aria-label="Transformer test bench"><p class="tb-hint">Empty. Drag the grip of a transformer card here, or press <b>Place on test bench</b> on a card. A live ideal-transformer calculator and a construction drawing appear here.</p></div>
+  </section>
   <div class="lib-items">${transformers.map(transformerCard).join('')}</div>`;
 }
 
@@ -88,6 +101,7 @@ export function initLibrarySections(): void {
     const transformers = registry.definitionsInFamily('fam.transformers');
     host.innerHTML = managementSection() + componentsSection(transformers);
     tHost.innerHTML = transformersSection(transformers);
+    initBench(tHost, transformers.map((d) => ({ id: d.id, name: d.name, symbolHtml: symbolSvg(d), shapeHtml: transformerShapeSvg(shapeKind(d)), purpose: d.electricalPurpose })), idealTransformer);
   } catch (error) {
     console.error('Volta Lab: the component library data is invalid', error);
     const msg = '<p class="wb-empty" role="alert">The component library could not be shown. The load models still work.</p>';
