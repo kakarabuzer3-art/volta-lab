@@ -232,7 +232,8 @@ test('workbench: non-modal left side panel with three sections; the Components s
   assert.equal((wb.match(/role="tabpanel"/g) ?? []).length, 3);
   assert.ok(/id="wbpane-transformers"[^>]*hidden/.test(wb) && /id="wbpane-third"[^>]*hidden/.test(wb) && !/id="wbpane-components"[^>]*hidden/.test(wb), 'Components is the open section by default');
   assert.ok(wb.includes('id="libTransformers"') && wb.indexOf('id="libTransformers"') > wb.indexOf('id="wbpane-transformers"'));
-  assert.ok(/has not been decided yet/.test(wb.slice(wb.indexOf('id="wbpane-third"'))), 'the third section is an honest placeholder');
+  const third = wb.slice(wb.indexOf('id="wbpane-third"'));
+  assert.ok(third.includes('id="libSection3"') && !/has not been decided yet/.test(third), 'the third section holds the Resistors, Capacitors and Diodes catalogue (rendered by library-ui), not a placeholder');
   const order = ['library', 'workspace', 'properties'].map((r) => wb.indexOf(`data-wb-region="${r}"`));
   assert.ok(order.every((i) => i > 0) && order[0] < order[1] && order[1] < order[2], 'regions in left, centre, right order');
   assert.equal((wb.match(/<section class="wb-region/g) ?? []).length, 3);

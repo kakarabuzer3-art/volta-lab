@@ -5,6 +5,7 @@
 import { CATEGORIES } from './components/taxonomy.ts';
 import { FAMILIES } from './components/data/families.ts';
 import { TRANSFORMER_DEFINITIONS } from './components/data/transformers.ts';
+import { SECTION3_DEFINITIONS } from './components/data/section3.ts';
 import { LEGACY_LOAD_META } from './components/data/legacy-load-meta.ts';
 import { createRegistry } from './components/registry.ts';
 import { describeEvidence } from './components/provenance.ts';
@@ -33,10 +34,10 @@ function managementSection(): string {
   </details>`;
 }
 
-function componentsSection(transformers: readonly ComponentDefinition[]): string {
+function componentsSection(catalogued: readonly ComponentDefinition[]): string {
   const items = [
     ...LEGACY_LOAD_META.map((m) => ({ categoryId: m.categoryId, familyId: m.familyId, name: m.name, status: 'Simulated (Load Lab model)', on: true })),
-    ...transformers.map((d) => ({ categoryId: d.categoryId, familyId: d.familyId, name: d.name, status: 'Catalogue entry only, not simulated', on: false })),
+    ...catalogued.map((d) => ({ categoryId: d.categoryId, familyId: d.familyId, name: d.name, status: 'Catalogue entry only, not simulated', on: false })),
   ];
   const cats = CATEGORIES.map((c) => {
     const fams = FAMILIES.filter((f) => f.categoryId === c.id);
@@ -93,19 +94,55 @@ function transformersSection(transformers: readonly ComponentDefinition[]): stri
   <div class="lib-items">${transformers.map(transformerCard).join('')}</div>`;
 }
 
+const SECTION3_FAMILIES: readonly { id: string; heading: string }[] = [
+  { id: 'fam.resistors', heading: 'Resistors' }, { id: 'fam.capacitors', heading: 'Capacitors' }, { id: 'fam.diodes', heading: 'Diodes' },
+];
+
+function typeCard(d: ComponentDefinition): string {
+  const formulas = d.formulas ?? [];
+  return `<details class="lib-item" data-def="${esc(d.id)}">
+    <summary><span class="lib-item-top">${symbolSvg(d)}<span class="lib-item-name">${esc(d.name)}</span></span><span class="lib-status">Catalogue entry only, not simulated</span></summary>
+    <div class="lib-item-body">
+      <p class="ll-explain"><b>What it is.</b> ${esc(d.beginnerSummary)}</p>
+      <p class="ll-explain"><b>What it does in a circuit.</b> ${esc(d.electricalPurpose)}</p>
+      ${d.applications ? `<h5 class="lib-sub">Common uses</h5><p class="ll-explain">${d.applications.map(esc).join('; ')}.</p>` : ''}
+      <h5 class="lib-sub">Terminals</h5>
+      <ul class="lib-terms">${d.terminals.map((t) => `<li>${esc(t.name)} <span class="lib-role">${esc(t.role)}</span></li>`).join('')}</ul>
+      ${formulas.length ? `<h5 class="lib-sub">Relations</h5><ul class="lib-terms">${formulas.map((f) => `<li><code>${esc(f.expression)}</code> <span class="lib-role">${esc(f.label)}</span><br><i>${esc(f.appliesWhen ?? '')}</i></li>`).join('')}</ul>` : ''}
+      <h5 class="lib-sub">Specifications a real product would state</h5>
+      <p class="ll-explain">${d.specifications.map((s) => esc(s.label)).join(', ')}. <i>No values are given here: this is a kind of part, not a specific product.</i></p>
+      <p class="lib-evidence">${esc(describeEvidence(d.evidence))}. ${esc(d.simulation.limitations.join(' '))}</p>
+    </div>
+  </details>`;
+}
+
+function section3(registry: ReturnType<typeof createRegistry>): string {
+  const groups = SECTION3_FAMILIES.map((fam) => {
+    const defs = registry.definitionsInFamily(fam.id);
+    return `<section class="lib-group" aria-labelledby="s3-${fam.id.slice(4)}"><h4 id="s3-${fam.id.slice(4)}" class="lib-sub">${esc(fam.heading)} <span class="lib-count">${defs.length} kinds</span></h4><div class="lib-items">${defs.map(typeCard).join('')}</div></section>`;
+  }).join('');
+  return `<div class="lib-pane-head">
+    <svg class="lib-symbol lib-symbol-lg" viewBox="0 0 64 32" aria-hidden="true" focusable="false"><path d="M4 16H20M20 10H44V22H20ZM44 16H60"/></svg>
+    <h3 class="wb-pane-title">Resistors, capacitors and diodes</h3>
+  </div>
+  <p class="wb-note">The common kinds of each part, with their circuit symbols and what each one is for. These are reference entries: they cannot be connected or simulated, and no ratings or part numbers are given. The simulator's own resistor and capacitor load models are in the Components section.</p>
+  ${groups}`;
+}
+
 export function initLibrarySections(): void {
-  const host = document.getElementById('libSections'), tHost = document.getElementById('libTransformers');
-  if (!host || !tHost) return;
+  const host = document.getElementById('libSections'), tHost = document.getElementById('libTransformers'), s3Host = document.getElementById('libSection3');
+  if (!host || !tHost || !s3Host) return;
   try {
-    const registry = createRegistry({ categories: CATEGORIES, families: FAMILIES, definitions: TRANSFORMER_DEFINITIONS, parts: [] }, { adapterIds: [] });
+    const registry = createRegistry({ categories: CATEGORIES, families: FAMILIES, definitions: [...TRANSFORMER_DEFINITIONS, ...SECTION3_DEFINITIONS], parts: [] }, { adapterIds: [] });
     const transformers = registry.definitionsInFamily('fam.transformers');
-    host.innerHTML = managementSection() + componentsSection(transformers);
+    host.innerHTML = managementSection() + componentsSection([...transformers, ...SECTION3_DEFINITIONS]);
     tHost.innerHTML = transformersSection(transformers);
+    s3Host.innerHTML = section3(registry);
     initBench(tHost, transformers.map((d) => ({ id: d.id, name: d.name, symbolHtml: symbolSvg(d), shapeHtml: transformerShapeSvg(shapeKind(d)), purpose: d.electricalPurpose })), idealTransformer);
   } catch (error) {
     console.error('Volta Lab: the component library data is invalid', error);
     const msg = '<p class="wb-empty" role="alert">The component library could not be shown. The load models still work.</p>';
-    host.innerHTML = msg; tHost.innerHTML = msg;
+    host.innerHTML = msg; tHost.innerHTML = msg; s3Host.innerHTML = msg;
   }
 }
 
