@@ -553,3 +553,7 @@ kbd { display: inline-block; min-width: 24px; padding: 2px 7px; border-radius: 6
 .ll-grip:active { cursor: grabbing; }
 .ll-drop { margin-bottom: 10px; }
 @media (pointer: coarse) { .ll-grip { min-width: 44px; min-height: 44px; } }
+
+/* Ohm's-law check in the Work area results */
+.ll-ohm { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-control); }
+.ll-ohm-title { margin: 0 0 6px; font: 700 var(--fs-body) var(--font-ui); color: var(--text-primary); }

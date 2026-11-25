@@ -303,6 +303,33 @@ export interface LoadResults {
   status: string;
 }
 
+/** Ohm's-law view of the numbers the engine already produced: V ÷ I and V × I. Arithmetic on the displayed readings only; nothing is simulated here. */
+export interface OhmCheck {
+  /** False while nothing is driving the load or the current is too small to divide by. */
+  available: boolean;
+  /** V ÷ I: the resistance (DC) or the impedance magnitude |Z| (AC) the machine sees. null when not available. */
+  apparentOhms: number | null;
+  apparentLabel: string;
+  /** V × I: real power in W for DC, apparent power in VA for AC. */
+  vTimesI: number;
+  vTimesIUnit: 'W' | 'VA';
+  note: string;
+}
+
+export function describeOhmCheck(r: LoadResults): OhmCheck {
+  const v = r.terminalVoltage.value, i = r.current.value, dc = r.inputMode === 'DC';
+  const available = r.driven && Number.isFinite(v) && Number.isFinite(i) && i > 1e-9;
+  const vi = v * i;
+  const apparentLabel = dc ? 'Resistance seen by the machine (V ÷ I)' : 'Impedance magnitude |Z| (V ÷ I)';
+  let note: string;
+  if (!available) note = 'Not available: the load is not being driven or the current is zero, so V ÷ I cannot be formed.';
+  else if (dc) note = Math.abs(vi - r.realPowerW) <= 0.02 * Math.max(1, Math.abs(r.realPowerW)) + 0.05
+    ? 'V × I equals the real power, as expected for steady DC.'
+    : 'V × I differs from the real power. That is not expected for steady DC, so the load may still be settling (a coil or capacitor charging, for example).';
+  else note = 'For AC, V × I is the apparent power S. The real power P is equal or smaller; the ratio P ÷ S is the power factor.';
+  return { available, apparentOhms: available ? v / i : null, apparentLabel, vTimesI: vi, vTimesIUnit: dc ? 'W' : 'VA', note };
+}
+
 /** Read-only view of what the engine computed. No physics here: every number is copied from the snapshot. */
 export function describeLoadResults(s: Snapshot): LoadResults | null {
   if (!s.load) return null;

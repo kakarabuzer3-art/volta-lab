@@ -1,6 +1,6 @@
 // Load Lab V1 — the DOM half, mounted inside the Component Workbench (library | work area | properties). Collects text, converts units and validates through ./sim/loadlab.ts, asks the coordinator to connect the
 // load, and shows results copied from the engine snapshot. It contains no electrical equations and no three.js.
-import { LOAD_CATALOGUE, buildLoad, describeLoadResults, loadTypeSpec, rangeHint } from './sim/index.ts';
+import { LOAD_CATALOGUE, buildLoad, describeLoadResults, describeOhmCheck, loadTypeSpec, rangeHint } from './sim/index.ts';
 import { attachGripDrag } from './drag-drop.ts';
 import type { ConnectionCoordinator, FieldSpec, LoadTypeId, LoadTypeSpec, RawForm, Snapshot } from './sim/index.ts';
 
@@ -207,6 +207,15 @@ export function initLoadLab(deps: LoadLabDeps): LoadLabUi {
 
   // ---------------------------------------------------------------- Stage D: results (snapshot only)
   const f2 = (x: number, d = 2): string => (Math.abs(x) >= 1000 ? x.toFixed(0) : x.toFixed(d));
+  /** Ohm's-law check: arithmetic on the readings above (V ÷ I, V × I), computed by describeOhmCheck in the sim module. */
+  function ohmHtml(r: NonNullable<ReturnType<typeof describeLoadResults>>): string {
+    const o = describeOhmCheck(r);
+    const na = '<span class="ll-na">not available</span>';
+    return `<section class="ll-ohm" aria-label="Ohm's law check"><h4 class="ll-ohm-title">Ohm's law check</h4>
+      <dl class="ll-results"><div><dt>${esc(o.apparentLabel)}</dt><dd>${o.apparentOhms === null ? na : `${f2(o.apparentOhms, 2)} Ω`}</dd></div>
+      <div><dt>V × I</dt><dd>${o.available ? `${f2(o.vTimesI, 1)} ${o.vTimesIUnit}` : na}</dd></div></dl>
+      <p class="ll-hint">${esc(o.note)}</p></section>`;
+  }
   function resultsHtml(snap: Snapshot): string {
     const r = describeLoadResults(snap);
     if (!r) return '<p class="ll-empty">No load connected. Choose a model, set its values under Properties and press Connect load to see how the model responds. Values come from the simulation engine; nothing is estimated here.</p>';
@@ -226,7 +235,7 @@ export function initLoadLab(deps: LoadLabDeps): LoadLabUi {
         ${row('Power factor (PF)', r.powerFactor === null ? na : r.powerFactor.toFixed(3))}
         ${row('Load temperature', `${r.tempC.toFixed(1)} °C`)}
         ${row('Load health', esc(r.health))}
-      </dl>${reasons}`;
+      </dl>${reasons}${ohmHtml(r)}`;
   }
 
   // ---------------------------------------------------------------- refresh (called from the render loop, throttled)

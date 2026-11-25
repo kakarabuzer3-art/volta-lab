@@ -7,7 +7,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ConnectionCoordinator, Engine, LOAD_CATALOGUE, buildLoad, defaultConfig, describeLoadResults, loadTypeSpec, parseField, resistiveLoad,
+  ConnectionCoordinator, Engine, LOAD_CATALOGUE, buildLoad, defaultConfig, describeLoadResults, describeOhmCheck, loadTypeSpec, parseField, resistiveLoad,
 } from './index.ts';
 import type { LoadTypeId, RawForm } from './index.ts';
 
@@ -203,4 +203,20 @@ test('the lead-touch refusal message points at the Workbench now that Load Lab m
   const r = c.canTouchLeads();
   assert.equal(r.ok, false);
   assert.ok(!r.ok && /Workbench/.test(r.reason) && !/Controls → Load Lab/.test(r.reason));
+});
+
+test("Ohm's-law check: V ÷ I recovers the resistance and V × I equals real power for steady DC", () => {
+  const r = describeLoadResults(run('resistor', 'dc', 100).s)!;
+  const o = describeOhmCheck(r);
+  assert.ok(o.available && o.vTimesIUnit === 'W');
+  assert.ok(Math.abs(o.apparentOhms! - 50) < 0.5, String(o.apparentOhms));
+  assert.ok(Math.abs(o.vTimesI - r.realPowerW) < 0.05 * Math.max(1, r.realPowerW));
+  assert.match(o.note, /equals the real power/);
+});
+test("Ohm's-law check: AC reports |Z| and VA, and is unavailable when nothing drives the load", () => {
+  const a = describeOhmCheck(describeLoadResults(run('inductor', 'ac', 100).s)!);
+  assert.ok(a.available && a.vTimesIUnit === 'VA' && /Impedance/.test(a.apparentLabel) && a.apparentOhms! > 20);
+  const off = new Engine(); off.setInputs({ powerOn: false, connection: { kind: 'load', load: resistiveLoad(50), reversed: false } }); seconds(off, 0.2);
+  const n = describeOhmCheck(describeLoadResults(off.snapshot())!);
+  assert.equal(n.available, false); assert.equal(n.apparentOhms, null); assert.match(n.note, /Not available/);
 });
